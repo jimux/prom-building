@@ -1,0 +1,34 @@
+# Build outputs
+build/
+*.o
+*.elf
+*.bin
+*.lst
+*.map
+*.dis
+*.tmp
+
+# Cross-toolchain build trees (the SGI MIPS cross-gcc lives outside the source tree)
+toolchain/
+binutils-*/
+gcc-*/
+
+# Large test logs (regeneratable from a QEMU boot)
+ip54_test1.log
+*.log
+qemu*.log
+
+# OS / IDE / Claude scratch
+.DS_Store
+.idea/
+.vscode/
+.claude/
+__pycache__/
+*.pyc
+
+# Editor backups
+*~
+*.swp
+*.swo
+*.bak
+*.orig
