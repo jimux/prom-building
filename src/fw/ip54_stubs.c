@@ -3831,6 +3831,63 @@ do_jump:
       }
     }
 
+    /* Patch R (IP54 desktop crash ROOT CAUSE, 2026-06-20):
+     * pas_addmmapdevice() sets rp->r_maxfsize = len, DROPPING the file offset
+     * (unlike pas_addmmap which uses off+len).  rld maps libpthread's sub-page
+     * (filesz 0x1000 < 16K page) GOT data segment from /dev/zero (VCHR ->
+     * AS_ADD_MMAPDEV) at file off 0x14000, so r_maxfsize becomes 0x4000.  A
+     * fork child's first fault of that page hits fault.c:2732
+     * (fileoff 0x14000 >= r_maxfsize 0x4000) -> demand-ZERO -> zero GOT[90] ->
+     * t9=0 -> SIGSEGV (the whole xdm/clogin second-wave crash).
+     *
+     * Fix: r_maxfsize = off + len.  off (as_mmap_off) is saved at sp+88; len is
+     * in t0; rp in s1.  The store "sd t0,96(s1)" is the delay slot of "beqz v1".
+     * Route through a trampoline (in stubbed wd93edtinit body) that adds off.
+     *
+     * Scan pas_addmmapdevice for:  beqz v1,X (0x1060????) ; sd t0,96(s1) (0xfe2c0060)
+     */
+    {
+      unsigned int pasdev = kern_sym_u("pas_addmmapdevice");
+      unsigned int edt    = kern_sym_u("wd93edtinit");
+      if (pasdev && edt) {
+        volatile unsigned int *scan;
+        int i, found = 0;
+        for (i = 0; i < 1024 && !found; i++) {
+          scan = (volatile unsigned int *)(pasdev + i * 4);
+          if ((scan[0] & 0xffff0000U) == 0x10600000U && scan[1] == 0xfe2c0060U) {
+            unsigned int branch_kseg0 = (pasdev ^ 0x20000000U) + i * 4;
+            unsigned int cont_kseg0   = branch_kseg0 + 8;   /* after delay slot   */
+            unsigned int tramp_kseg0  = (edt ^ 0x20000000U) + 0x100;
+            volatile unsigned int *t  = (volatile unsigned int *)(edt + 0x100);
+            int soff = (int)(short)(scan[0] & 0xffffU);       /* beqz disp (sign)  */
+            unsigned int orig_target = (branch_kseg0 + 4) + (soff << 2);
+
+            /* off (as_mmap_off) read reliably via arg (saved at sp+152 in the
+             * prologue) -> arg+24, NOT a path-specific stack slot.  orig_target
+             * is ~MBs away (beyond beq's +-128K), so use j for both arms: bnez
+             * v1 skips the j orig_target to reach the j cont. */
+            t[0] = 0xDFA10098U;            /* ld    at, 152(sp)  ; at = arg        */
+            t[1] = 0xDC210018U;            /* ld    at, 24(at)   ; at = off        */
+            t[2] = 0x0181602DU;            /* daddu t0, t0, at   ; t0 = len + off  */
+            t[3] = 0xFE2C0060U;            /* sd    t0, 96(s1)   ; r_maxfsize      */
+            t[4] = 0x14600003U;            /* bnez  v1, +3 (-> t[8], the j cont)   */
+            t[5] = 0x00000000U;            /* nop  (delay slot)                    */
+            t[6] = mips_j(orig_target);    /* v1==0: j 0x..5e8 (original branch)   */
+            t[7] = 0x00000000U;            /* nop  (delay slot)                    */
+            t[8] = mips_j(cont_kseg0);     /* v1!=0: j fall-through                */
+            t[9] = 0x00000000U;            /* nop  (delay slot)                    */
+            scan[0] = mips_j(tramp_kseg0); /* was beqz v1,X                        */
+            scan[1] = 0x00000000U;         /* nop (was sd t0,96(s1))               */
+            stub_puts("[IP54] Patched pas_addmmapdevice: r_maxfsize=off+len (GOT zero-fill fix)\n");
+            found = 1;
+          }
+        }
+        if (!found) stub_puts("[IP54] WARN: pas_addmmapdevice r_maxfsize pattern not found\n");
+      } else {
+        if (!pasdev) stub_puts("[IP54] WARN: pas_addmmapdevice not found\n");
+      }
+    }
+
     /* Trap diagnostic removed — async DBE lands inside trampoline causing
      * recursive kernel-mode exception → PANIC.  The wd93edtinit space at
      * 0x88054d98 is now free for future use. */
