@@ -1354,7 +1354,7 @@ __assert(const char* ex, const char* file, int line){
 
 /* Flash ROM definition */
 
-#ifndef IP54_STUB_GETVERSION
+#ifndef PVPROM_STUB_GETVERSION
 #define IMPOSSIBLE    0
 char*
 getversion(void)
@@ -1389,4 +1389,4 @@ getversion(void)
   }
   assert(IMPOSSIBLE);
 }
-#endif /* IP54_STUB_GETVERSION */
+#endif /* PVPROM_STUB_GETVERSION */

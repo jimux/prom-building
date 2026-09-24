@@ -1,5 +1,5 @@
 /*
- * prom.ld -- GNU ld linker script for IP54 PROM
+ * prom.ld -- GNU ld linker script for paravirtual PROM
  *
  * Single-stage flat PROM image for QEMU emulation.
  * Loaded at physical 0x1FC00000, mapped via kseg1 at 0xBFC00000.

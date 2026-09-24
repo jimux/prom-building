@@ -1,5 +1,5 @@
 /*
- * main.c -- main line prom code (IP54 minimal)
+ * main.c -- main line prom code (paravirtual minimal)
  *
  * Stripped of GUI mode, MACE LEDs, IP32SIM ifdefs.
  */

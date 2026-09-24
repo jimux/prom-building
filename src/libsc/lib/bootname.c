@@ -29,7 +29,7 @@ make_bootfile(int rewind)
      */
     if (rewind) {
 	/*
-	 * IP54: Always use OSLoadPartition + OSLoadFilename to load
+	 * Paravirtual PROM: always use OSLoadPartition + OSLoadFilename to load
 	 * the kernel directly from XFS, bypassing SASH.  The PROM's
 	 * Execute() applies binary patches that SASH would skip.
 	 */

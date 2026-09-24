@@ -1,5 +1,5 @@
 /*
- * env.c -- RAM-only environment variables for IP54 PROM
+ * env.c -- RAM-only environment variables for paravirtual PROM
  *
  * Replaces the flash-backed env.c from IP32. Changes are in-memory only
  * (lost on reset), which is fine for QEMU.

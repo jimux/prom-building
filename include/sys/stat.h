@@ -1,5 +1,5 @@
 /*
- * sys/stat.h -- Minimal standalone version for IP54 PROM build.
+ * sys/stat.h -- Minimal standalone version for paravirtual PROM build.
  *
  * XFS and EFS standalone code include sys/stat.h but do not use
  * struct stat members directly.

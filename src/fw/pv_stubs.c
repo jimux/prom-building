@@ -1,5 +1,5 @@
 /*
- * ip54_stubs.c -- Stub and real implementations for IP54 PROM
+ * pv_stubs.c -- Stub and real implementations for paravirtual PROM
  *
  * This file provides:
  * - Global variables needed by PROM code
@@ -300,8 +300,8 @@ LONG GetConfigData(void *data, COMPONENT *c) {
  * MPCONF BLOCK
  * ================================================================ */
 
-#define IP54_MPCONF_MAGIC 0x4D503534
-#define IP54_MPCONF_ADDR 0x80001800
+#define PVPROM_MPCONF_MAGIC 0x4D503534
+#define PVPROM_MPCONF_ADDR 0x80001800
 #define SGI_SMP_BASE 0xBF480000
 
 typedef struct {
@@ -313,14 +313,14 @@ typedef struct {
     unsigned int status; /* 1 = present */
     unsigned int reserved;
   } cpus[128];
-} ip54_mpconf_t;
+} pvprom_mpconf_t;
 
 static void init_mpconf(void) {
-  ip54_mpconf_t *mpc = (ip54_mpconf_t *)IP54_MPCONF_ADDR;
+  pvprom_mpconf_t *mpc = (pvprom_mpconf_t *)PVPROM_MPCONF_ADDR;
   unsigned int num_cpus = *(volatile unsigned int *)SGI_SMP_BASE;
   int i;
 
-  mpc->magic = IP54_MPCONF_MAGIC;
+  mpc->magic = PVPROM_MPCONF_MAGIC;
   mpc->num_cpus = num_cpus;
 
   for (i = 0; i < 128; i++) {
@@ -842,13 +842,13 @@ static struct eiob s_xfs_eiob;
 static int         s_fs_init_done = 0;
 
 /*
- * ip54_disk_strategy — ARCS device strategy called by DEVREAD() in xfs.c.
+ * pv_disk_strategy — ARCS device strategy called by DEVREAD() in xfs.c.
  *   dev->Key  = partition start LBN on the pvBootDisk
  *   io->StartBlock = LBN within the partition
  *   io->Count  = bytes to transfer
  *   io->Address = destination buffer
  */
-static STATUS ip54_disk_strategy(COMPONENT *dev, IOBLOCK *io) {
+static STATUS pv_disk_strategy(COMPONENT *dev, IOBLOCK *io) {
   unsigned long part_lbn  = (unsigned long)dev->Key;
   unsigned long blk       = (unsigned long)(unsigned int)io->StartBlock;
   unsigned long byte_off  = (part_lbn + blk) * 512UL;
@@ -892,7 +892,7 @@ static LONG open_fs_file(int part, const char *filename, ULONG *fd_out) {
       part_start_lbn = (unsigned long)(unsigned int)vh.vh_pt[part].pt_firstlbn;
   }
 
-  stub_puts("[IP54] open_fs_file: part=");
+  stub_puts("[PVPROM] open_fs_file: part=");
   stub_putdec(part);
   stub_puts(" lbn=0x");
   stub_puthex(part_start_lbn);
@@ -909,10 +909,10 @@ static LONG open_fs_file(int part, const char *filename, ULONG *fd_out) {
                             ((unsigned long)peek[2] << 8) | peek[3];
       /* sb_versionnum is at offset 100 (0x64) in xfs_sb_t */
       unsigned long ver = ((unsigned long)peek[100] << 8) | peek[101];
-      stub_puts("[IP54] XFS magic="); stub_puthex(magic);
+      stub_puts("[PVPROM] XFS magic="); stub_puthex(magic);
       stub_puts(" ver="); stub_puthex(ver); stub_puts("\n");
     } else {
-      stub_puts("[IP54] peek read FAILED\n");
+      stub_puts("[PVPROM] peek read FAILED\n");
     }
   }
 
@@ -931,13 +931,13 @@ static LONG open_fs_file(int part, const char *filename, ULONG *fd_out) {
   mem_set(&s_xfs_eiob, 0, sizeof(s_xfs_eiob));
   s_xfs_eiob.dev                = &s_xfs_comp;
   s_xfs_eiob.fsb.Device         = &s_xfs_comp;  /* DEVREAD uses fsb.Device */
-  s_xfs_eiob.fsb.DeviceStrategy = ip54_disk_strategy;
+  s_xfs_eiob.fsb.DeviceStrategy = pv_disk_strategy;
   s_xfs_eiob.fsb.IO             = &s_xfs_io;
   s_xfs_eiob.fsb.Filename       = (CHAR *)filename;
 
   /* Identify the filesystem on this partition */
   if (fs_search(&s_xfs_eiob) != ESUCCESS) {
-    stub_puts("[IP54] open_fs_file: no recognized filesystem on partition\n");
+    stub_puts("[PVPROM] open_fs_file: no recognized filesystem on partition\n");
     return 6; /* ENODEV */
   }
 
@@ -945,13 +945,13 @@ static LONG open_fs_file(int part, const char *filename, ULONG *fd_out) {
   s_xfs_eiob.fsb.FunctionCode = FS_OPEN;
   err = s_xfs_eiob.fsstrat(&s_xfs_eiob.fsb);
   if (err != ESUCCESS) {
-    stub_puts("[IP54] open_fs_file: file not found: ");
+    stub_puts("[PVPROM] open_fs_file: file not found: ");
     stub_puts(filename);
     stub_puts("\n");
     return 2; /* ENOENT */
   }
 
-  stub_puts("[IP54] open_fs_file: opened OK\n");
+  stub_puts("[PVPROM] open_fs_file: opened OK\n");
 
   /* Allocate an fd */
   if (!fd_table_inited) init_fd_table();
@@ -1429,7 +1429,7 @@ kern_sym_or_warn(const char *name)
 {
     unsigned int v = kern_sym(name);
     if (!v) {
-        stub_puts("[IP54] WARN: symbol not found: ");
+        stub_puts("[PVPROM] WARN: symbol not found: ");
         stub_puts(name);
         stub_puts("\n");
     }
@@ -1465,7 +1465,7 @@ static LONG load_program(ULONG fd, unsigned long *entry_out) {
   /* Read the first 512 bytes for format detection */
   rc = Read(fd, hdr_buf, 512, &got);
   if (rc != 0 || got < 64) {
-    stub_puts("[IP54] load_program: failed to read header\n");
+    stub_puts("[PVPROM] load_program: failed to read header\n");
     return 7; /* EIO */
   }
 
@@ -1478,14 +1478,14 @@ static LONG load_program(ULONG fd, unsigned long *entry_out) {
     LARGEINTEGER seek_off;
     int i;
 
-    stub_puts("[IP54] ELF32 binary detected\n");
+    stub_puts("[PVPROM] ELF32 binary detected\n");
 
     if (ehdr->e_ident[4] != ELFCLASS32) {
-      stub_puts("[IP54] Not ELF32 class\n");
+      stub_puts("[PVPROM] Not ELF32 class\n");
       return 5;
     }
 
-    stub_puts("[IP54] Entry point: ");
+    stub_puts("[PVPROM] Entry point: ");
     stub_puthex(ehdr->e_entry);
     stub_puts("\n");
 
@@ -1504,7 +1504,7 @@ static LONG load_program(ULONG fd, unsigned long *entry_out) {
       if (phdr.p_filesz == 0 && phdr.p_memsz == 0)
         continue;
 
-      stub_puts("[IP54]   PT_LOAD: vaddr=");
+      stub_puts("[PVPROM]   PT_LOAD: vaddr=");
       stub_puthex(phdr.p_vaddr);
       stub_puts(" filesz=");
       stub_puthex(phdr.p_filesz);
@@ -1529,13 +1529,13 @@ static LONG load_program(ULONG fd, unsigned long *entry_out) {
         seek_off.hi = 0;
         seek_off.lo = phdr.p_offset;
         Seek(fd, &seek_off, SeekAbsolute);
-        stub_puts("[IP54]   Loading to ");
+        stub_puts("[PVPROM]   Loading to ");
         stub_puthex(dest);
         stub_puts(" from file offset ");
         stub_puthex(phdr.p_offset);
         stub_puts("\n");
         rrc = Read(fd, (void *)dest, phdr.p_filesz, &got);
-        stub_puts("[IP54]   Read returned ");
+        stub_puts("[PVPROM]   Read returned ");
         stub_putdec(rrc);
         stub_puts(", got=");
         stub_putdec(got);
@@ -1543,7 +1543,7 @@ static LONG load_program(ULONG fd, unsigned long *entry_out) {
         /* Verify first 4 bytes at dest */
         {
           unsigned char *vp = (unsigned char *)dest;
-          stub_puts("[IP54]   First bytes: ");
+          stub_puts("[PVPROM]   First bytes: ");
           stub_puthex(vp[0]);
           stub_puts(" ");
           stub_puthex(vp[1]);
@@ -1556,7 +1556,7 @@ static LONG load_program(ULONG fd, unsigned long *entry_out) {
           {
             unsigned long ep_off = ehdr->e_entry - phdr.p_vaddr;
             unsigned char *ep_bytes = (unsigned char *)(dest + ep_off);
-            stub_puts("[IP54]   Entry bytes at ");
+            stub_puts("[PVPROM]   Entry bytes at ");
             stub_puthex(dest + ep_off);
             stub_puts(": ");
             stub_puthex(ep_bytes[0]);
@@ -1636,7 +1636,7 @@ static LONG load_program(ULONG fd, unsigned long *entry_out) {
         kern_strtab = (char *)str_load;
         kern_symcount = symtab_size / sizeof(struct elf32_sym);
 
-        stub_puts("[IP54] Loaded ");
+        stub_puts("[PVPROM] Loaded ");
         stub_putdec(kern_symcount);
         stub_puts(" symbols (");
         stub_putdec(symtab_size + strtab_size);
@@ -1646,15 +1646,15 @@ static LONG load_program(ULONG fd, unsigned long *entry_out) {
         {
           unsigned int test = kern_sym("intr");
           if (test) {
-            stub_puts("[IP54] kern_sym(\"intr\") = ");
+            stub_puts("[PVPROM] kern_sym(\"intr\") = ");
             stub_puthex(test);
             stub_puts("\n");
           } else {
-            stub_puts("[IP54] WARN: kern_sym(\"intr\") failed!\n");
+            stub_puts("[PVPROM] WARN: kern_sym(\"intr\") failed!\n");
           }
         }
       } else {
-        stub_puts("[IP54] WARN: no .symtab in kernel ELF\n");
+        stub_puts("[PVPROM] WARN: no .symtab in kernel ELF\n");
       }
     }
 
@@ -1675,25 +1675,25 @@ static LONG load_program(ULONG fd, unsigned long *entry_out) {
       unsigned long dest;
       LARGEINTEGER seek_off;
 
-      stub_puts("[IP54] ECOFF binary detected (magic=");
+      stub_puts("[PVPROM] ECOFF binary detected (magic=");
       stub_puthex(magic);
       stub_puts(")\n");
 
       if (fhdr->f_opthdr < sizeof(struct ecoff_aouthdr)) {
-        stub_puts("[IP54] ECOFF optional header too small\n");
+        stub_puts("[PVPROM] ECOFF optional header too small\n");
         return 5;
       }
 
       ahdr = (struct ecoff_aouthdr *)(hdr_buf + sizeof(struct ecoff_filehdr));
 
-      stub_puts("[IP54] Entry: ");
+      stub_puts("[PVPROM] Entry: ");
       stub_puthex(ahdr->entry);
       stub_puts(" text_start=");
       stub_puthex(ahdr->text_start);
       stub_puts(" tsize=");
       stub_puthex(ahdr->tsize);
       stub_puts("\n");
-      stub_puts("[IP54] data_start=");
+      stub_puts("[PVPROM] data_start=");
       stub_puthex(ahdr->data_start);
       stub_puts(" dsize=");
       stub_puthex(ahdr->dsize);
@@ -1715,7 +1715,7 @@ static LONG load_program(ULONG fd, unsigned long *entry_out) {
 
         /* Section headers are in hdr_buf (we read 512 bytes) */
         if (scn_off + fhdr->f_nscns * sizeof(struct ecoff_scnhdr) > 512) {
-          stub_puts("[IP54] ECOFF headers exceed 512 bytes\n");
+          stub_puts("[PVPROM] ECOFF headers exceed 512 bytes\n");
           return 5;
         }
 
@@ -1735,7 +1735,7 @@ static LONG load_program(ULONG fd, unsigned long *entry_out) {
             continue;
 
           dest = to_kseg1((unsigned long)scn->s_vaddr);
-          stub_puts("[IP54] Loading ");
+          stub_puts("[PVPROM] Loading ");
           {
             int ni;
             for (ni = 0; ni < 8 && scn->s_name[ni]; ni++)
@@ -1761,7 +1761,7 @@ static LONG load_program(ULONG fd, unsigned long *entry_out) {
     }
   }
 
-  stub_puts("[IP54] Unknown binary format: ");
+  stub_puts("[PVPROM] Unknown binary format: ");
   stub_puthex((hdr_buf[0] << 8) | hdr_buf[1]);
   stub_puts("\n");
   return 5; /* EINVAL */
@@ -1775,14 +1775,14 @@ LONG Load(CHAR *path, ULONG topaddr, ULONG *entry, ULONG *lowaddr) {
 
   (void)topaddr;
 
-  stub_puts("[IP54] Load: ");
+  stub_puts("[PVPROM] Load: ");
   if (path)
     stub_puts(path);
   stub_puts("\n");
 
   rc = Open(path, OpenReadOnly, &fd);
   if (rc != 0) {
-    stub_puts("[IP54] Load: Open failed\n");
+    stub_puts("[PVPROM] Load: Open failed\n");
     return rc;
   }
 
@@ -1806,7 +1806,7 @@ LONG Invoke(ULONG entry, ULONG stack, LONG argc, CHAR *argv[], CHAR *envp[]) {
   (void)argc;
   (void)argv;
   (void)envp;
-  stub_puts("[IP54] Invoke called\n");
+  stub_puts("[PVPROM] Invoke called\n");
   return 6; /* ENODEV */
 }
 
@@ -1832,7 +1832,7 @@ LONG Execute(CHAR *path, LONG argc, CHAR *argv[], CHAR *envp[]) {
   ULONG got;
   typedef void (*entry_fn_t)(LONG, CHAR *[], CHAR *[]);
 
-  stub_puts("[IP54] Execute: ");
+  stub_puts("[PVPROM] Execute: ");
   if (path)
     stub_puts(path);
   stub_puts("\n");
@@ -1855,13 +1855,13 @@ LONG Execute(CHAR *path, LONG argc, CHAR *argv[], CHAR *envp[]) {
     ULONG fs_fd;
     rc = open_fs_file(part, filename, &fs_fd);
     if (rc != 0) {
-      stub_puts("[IP54] Execute: cannot open fs file\n");
+      stub_puts("[PVPROM] Execute: cannot open fs file\n");
       return rc;
     }
     rc = load_program(fs_fd, &entry);
     Close(fs_fd);
     if (rc != 0) {
-      stub_puts("[IP54] Execute: load_program failed\n");
+      stub_puts("[PVPROM] Execute: load_program failed\n");
       return rc;
     }
     goto do_jump;
@@ -1890,7 +1890,7 @@ LONG Execute(CHAR *path, LONG argc, CHAR *argv[], CHAR *envp[]) {
 
     rc = Open(dev_path, OpenReadOnly, &fd);
     if (rc != 0) {
-      stub_puts("[IP54] Execute: cannot open disk\n");
+      stub_puts("[PVPROM] Execute: cannot open disk\n");
       return rc;
     }
   }
@@ -1901,20 +1901,20 @@ LONG Execute(CHAR *path, LONG argc, CHAR *argv[], CHAR *envp[]) {
    * typically starts at LBN 0, we read from position 0. But for safety,
    * just read directly from disk byte 0. */
   if (bd_read_bytes(0, &vh, sizeof(vh)) != 0) {
-    stub_puts("[IP54] Execute: cannot read volume header\n");
+    stub_puts("[PVPROM] Execute: cannot read volume header\n");
     Close(fd);
     return 7;
   }
 
   if (vh.vh_magic != VHMAGIC) {
-    stub_puts("[IP54] Execute: bad volume header magic: ");
+    stub_puts("[PVPROM] Execute: bad volume header magic: ");
     stub_puthex(vh.vh_magic);
     stub_puts("\n");
     Close(fd);
     return 6;
   }
 
-  stub_puts("[IP54] Volume header OK, bootfile=\"");
+  stub_puts("[PVPROM] Volume header OK, bootfile=\"");
   stub_puts(vh.vh_bootfile);
   stub_puts("\"\n");
 
@@ -1924,7 +1924,7 @@ LONG Execute(CHAR *path, LONG argc, CHAR *argv[], CHAR *envp[]) {
     filename = vh.vh_bootfile;
   }
 
-  stub_puts("[IP54] Looking for \"");
+  stub_puts("[PVPROM] Looking for \"");
   stub_puts(filename);
   stub_puts("\" in volume directory...\n");
 
@@ -1953,13 +1953,13 @@ LONG Execute(CHAR *path, LONG argc, CHAR *argv[], CHAR *envp[]) {
     }
   }
 
-  stub_puts("[IP54] File not found in volume directory\n");
+  stub_puts("[PVPROM] File not found in volume directory\n");
   /* List what's available */
-  stub_puts("[IP54] Volume directory contents:\n");
+  stub_puts("[PVPROM] Volume directory contents:\n");
   for (i = 0; i < NVDIR; i++) {
     if (vh.vh_vd[i].vd_name[0] == '\0')
       continue;
-    stub_puts("[IP54]   \"");
+    stub_puts("[PVPROM]   \"");
     {
       int j;
       for (j = 0; j < VDNAMESIZE && vh.vh_vd[i].vd_name[j]; j++)
@@ -1975,7 +1975,7 @@ LONG Execute(CHAR *path, LONG argc, CHAR *argv[], CHAR *envp[]) {
   return 6; /* ENODEV */
 
 found_file:
-  stub_puts("[IP54] Found: lbn=");
+  stub_puts("[PVPROM] Found: lbn=");
   stub_putdec(vh.vh_vd[i].vd_lbn);
   stub_puts(" size=");
   stub_putdec(vh.vh_vd[i].vd_nbytes);
@@ -2002,7 +2002,7 @@ found_file:
       }
     }
     if (fi >= MAX_FDS) {
-      stub_puts("[IP54] No free fds\n");
+      stub_puts("[PVPROM] No free fds\n");
       return 6;
     }
   }
@@ -2012,12 +2012,12 @@ found_file:
   Close(fd);
 
   if (rc != 0) {
-    stub_puts("[IP54] Execute: load_program failed\n");
+    stub_puts("[PVPROM] Execute: load_program failed\n");
     return rc;
   }
 
 do_jump:
-  stub_puts("[IP54] Jumping to entry point: ");
+  stub_puts("[PVPROM] Jumping to entry point: ");
   stub_puthex(entry);
   stub_puts("\n");
 
@@ -2100,7 +2100,7 @@ do_jump:
       kern_envp[ke++] = "showconfig=1";
     kern_envp[ke] = (char *)0;
 
-    stub_puts("[IP54] Kernel argc=1, envp count=");
+    stub_puts("[PVPROM] Kernel argc=1, envp count=");
     stub_putdec(ke);
     stub_puts("\n");
 
@@ -2145,7 +2145,7 @@ do_jump:
      */
     if (elf_bss_size > 0) {
       unsigned long bss_dest = to_kseg1(elf_bss_start);
-      stub_puts("[IP54] Zeroing BSS at ");
+      stub_puts("[PVPROM] Zeroing BSS at ");
       stub_puthex(bss_dest);
       stub_puts(" size=");
       stub_puthex(elf_bss_size);
@@ -2220,13 +2220,13 @@ do_jump:
           /* Verify preceding instruction is addu v0,v0,v1 */
           if (scan[-1] == 0x00431021U) {  /* addu v0,v0,v1 */
             *scan = 0x00000000U;  /* nop */
-            stub_puts("[IP54] Patched cprintf: NOP putbuf sb (null-safe)\n");
+            stub_puts("[PVPROM] Patched cprintf: NOP putbuf sb (null-safe)\n");
             found = 1;
           }
         }
       }
       if (!found) {
-        stub_puts("[IP54] WARN: cprintf sb pattern not found\n");
+        stub_puts("[PVPROM] WARN: cprintf sb pattern not found\n");
       }
     }
 
@@ -2255,12 +2255,12 @@ do_jump:
              * The original beqz further down skips to the same target.
              * Compute target offset: scan forward for the "b" skip target. */
             p[i] = 0x10200015U;  /* beqz at, +0x15 (skip path) */
-            stub_puts("[IP54] Patched _bclean_caches: null-guard info_ptr\n");
+            stub_puts("[PVPROM] Patched _bclean_caches: null-guard info_ptr\n");
             found = 1;
           }
         }
         if (!found) {
-          stub_puts("[IP54] WARN: _bclean_caches pattern not found\n");
+          stub_puts("[PVPROM] WARN: _bclean_caches pattern not found\n");
         }
       }
     }
@@ -2310,7 +2310,7 @@ do_jump:
       unsigned int semawait_addr = kern_sym("semawait");
 
       if (!cc || !putbuf_addr || !putbufsz_addr || !maxcpus_addr || !psema_addr) {
-        stub_puts("[IP54] WARN: config_cache/putbuf/maxcpus/psema symbols not found\n");
+        stub_puts("[PVPROM] WARN: config_cache/putbuf/maxcpus/psema symbols not found\n");
       } else {
       /* Patch 1: replace jal size_2nd_cache with lui v0, 0x0010 */
       /* config_cache+0x90: jal size_2nd_cache → lui v0, 0x0010 */
@@ -2319,9 +2319,9 @@ do_jump:
         unsigned int expect_jal = mips_jal(kern_sym("size_2nd_cache"));
         if (*p == expect_jal) {
           *p = 0x3c020010U; /* lui v0, 0x0010 */
-          stub_puts("[IP54] Patched size_2nd_cache call -> 1MB\n");
+          stub_puts("[PVPROM] Patched size_2nd_cache call -> 1MB\n");
         } else {
-          stub_puts("[IP54] WARN: size_2nd_cache patch mismatch: ");
+          stub_puts("[PVPROM] WARN: size_2nd_cache patch mismatch: ");
           stub_puthex(*p);
           stub_puts("\n");
         }
@@ -2380,7 +2380,7 @@ do_jump:
           p[20] = 0x10000000U | (branch_off & 0xffffU);  /* b cont */
         }
         p[21] = 0x00000000U;        /* nop (delay slot) */
-        stub_puts("[IP54] Installed putbuf/maxcpus trampoline\n");
+        stub_puts("[PVPROM] Installed putbuf/maxcpus trampoline\n");
 
         /*
          * --- (c) psema early-boot trampoline ---
@@ -2418,9 +2418,9 @@ do_jump:
           p = (volatile unsigned int *)(kern_sym_u("psema") + 0x30);
           if (*p == 0x04600008U) { /* bltz v1, +8 */
             *p = mips_j(tramp_kseg0);
-            stub_puts("[IP54] Installed psema safety trampoline\n");
+            stub_puts("[PVPROM] Installed psema safety trampoline\n");
           } else {
-            stub_puts("[IP54] WARN: psema bltz mismatch: ");
+            stub_puts("[PVPROM] WARN: psema bltz mismatch: ");
             stub_puthex(*p);
             stub_puts("\n");
           }
@@ -2430,23 +2430,23 @@ do_jump:
     }
 
     /*
-     * Patch 4: ip54_get_timestamp — fix pvtimer address.
+     * Patch 4: pv_get_timestamp — fix pvtimer address.
      *
-     * The compiled kernel has ip54_get_timestamp reading from 0x0FF00080
-     * (IP30 HEART PIU base, unmapped on IP54).  The correct address is
+     * The compiled kernel has pv_get_timestamp reading from 0x0FF00080
+     * (IP30 HEART PIU base, unmapped on the paravirtual machine).  The correct address is
      * 0xBF480538 — KSEG1 of physical 0x1F480538 (pvtimer counter reg).
      *
      * 0x88003020: lui  $12, 0x0ff0   → lui  $12, 0xbf48
      * 0x8800324c: ori  $12,$12,0x80  → ori  $12,$12,0x38
      */
     {
-      unsigned int ts = kern_sym_u("ip54_get_timestamp");
+      unsigned int ts = kern_sym_u("pv_get_timestamp");
       if (ts) {
         volatile unsigned int *p = (volatile unsigned int *)ts;
         if (*p == 0x3c0c0ff0U) {       /* lui $12, 0x0ff0 */
           p[0] = 0x3c0cbf48U;          /* lui $12, 0xb400 */
           p[1] = 0x358c0538U;          /* ori $12,$12, 0x38 */
-          stub_puts("[IP54] Patched ip54_get_timestamp -> pvtimer 0xBF480538\n");
+          stub_puts("[PVPROM] Patched pv_get_timestamp -> pvtimer 0xBF480538\n");
         }
       }
     }
@@ -2456,11 +2456,11 @@ do_jump:
      *
      * _hook_exceptions copies this template into a fast-path locore slot
      * at VA 0x88003020.  If left unpatched, it reads HEART 0x0FF00080
-     * (unmapped on IP54) and causes a TLB miss panic during early boot.
+     * (unmapped on the paravirtual machine) and causes a TLB miss panic during early boot.
      */
-    /* Patch 4b: Scan near ip54_get_timestamp for a second lui $12, 0x0ff0 (template copy) */
+    /* Patch 4b: Scan near pv_get_timestamp for a second lui $12, 0x0ff0 (template copy) */
     {
-      unsigned int ts = kern_sym_u("ip54_get_timestamp");
+      unsigned int ts = kern_sym_u("pv_get_timestamp");
       if (ts) {
         volatile unsigned int *scan;
         for (scan = (volatile unsigned int *)(ts + 0x100);
@@ -2468,7 +2468,7 @@ do_jump:
           if (*scan == 0x3c0c0ff0U) {
             scan[0] = 0x3c0cbf48U;
             scan[1] = 0x358c0538U;
-            stub_puts("[IP54] Patched _get_timestamp template -> pvtimer\n");
+            stub_puts("[PVPROM] Patched _get_timestamp template -> pvtimer\n");
             break;
           }
         }
@@ -2482,7 +2482,7 @@ do_jump:
      * counter reader at VA 0x88003020 (zeros in the ELF).  At runtime,
      * this slot gets called as a fast-path timestamp reader.  The
      * installed code reads VA 0x0FF00080 (HEART counter via XUSEG),
-     * which faults because no TLB entry maps that address on IP54.
+     * which faults because no TLB entry maps that address on the paravirtual machine.
      *
      * Pre-install pvtimer reader code here.  If the kernel later copies
      * from the already-patched template at 0x88003020, the copy will
@@ -2496,7 +2496,7 @@ do_jump:
      *   nop                  # 00000000
      */
     {
-      unsigned int ts = kern_sym_u("ip54_get_timestamp");
+      unsigned int ts = kern_sym_u("pv_get_timestamp");
       if (ts) {
         volatile unsigned int *p = (volatile unsigned int *)ts;
         p[0] = 0x3c0cbf48U;  /* lui  $12, 0xBF48 */
@@ -2504,7 +2504,7 @@ do_jump:
         p[2] = 0xdd820000U;  /* ld   $v0, 0($12) */
         p[3] = 0x03e00008U;  /* jr   $ra */
         p[4] = 0x00000000U;  /* nop */
-        stub_puts("[IP54] Pre-installed pvtimer reader\n");
+        stub_puts("[PVPROM] Pre-installed pvtimer reader\n");
       }
     }
 
@@ -2513,7 +2513,7 @@ do_jump:
      *
      * pvdiskedtinit() calls badaddr(0xB7000000, 4) to detect the
      * sgi-bootdisk device.  badaddr() uses the IP22 MC bus-error
-     * registers at 0xBFA000EC/FC, and the fake MC on IP54 may not
+     * registers at 0xBFA000EC/FC, and the fake MC on the paravirtual machine may not
      * emulate the bus-error detection correctly, causing the probe
      * to silently fail and the driver to never register hwgraph paths.
      *
@@ -2538,7 +2538,7 @@ do_jump:
        * OR we can find it by looking for the pvdisk MMIO address 0xB7000000 nearby.
        * Use io_init to find it — scan the io_init table for the pvdisk entry. */
       /* pvdiskedtinit address will be found dynamically below */
-      stub_puts("[IP54] pvdiskedtinit: no patches needed (disk kernel build)\n");
+      stub_puts("[PVPROM] pvdiskedtinit: no patches needed (disk kernel build)\n");
     }
 
     /*
@@ -2559,10 +2559,10 @@ do_jump:
         /*
          * Remove dangerous init functions from io_init[].
          * ng1_init probes GIO addresses for real Newport hardware;
-         * on IP54 (no GIO bus), reads return 0 instead of bus error,
+         * on the paravirtual machine (no GIO bus), reads return 0 instead of bus error,
          * so ng1 registers a ghost board that crashes gfxinit/Xsgi.
          * pckminit probes IOC2 8042 PS/2 controller which doesn't
-         * exist on IP54.
+         * exist on the paravirtual machine.
          */
         {
           unsigned int ng1_init_fn = kern_sym("ng1_init");
@@ -2571,7 +2571,7 @@ do_jump:
           /* Compact io_init[] by removing unwanted entries */
           for (k = 0, dst = 0; k < 30 && io[k] != 0; k++) {
             if (io[k] == ng1_init_fn) {
-              stub_puts("[IP54] Removed ng1_init from io_init[");
+              stub_puts("[PVPROM] Removed ng1_init from io_init[");
               stub_puthex(k);
               stub_puts("]\n");
               continue;
@@ -2585,7 +2585,7 @@ do_jump:
         }
 
         /* Dump io_init[] array (after cleanup) */
-        stub_puts("[IP54] io_init[] at ");
+        stub_puts("[PVPROM] io_init[] at ");
         stub_puthex(io_init_addr);
         stub_puts(":\n");
         for (j = 0; j < 30; j++) {
@@ -2602,7 +2602,7 @@ do_jump:
           if (io[j] == 0) {
             /* Append pvdiskedtinit */
             io[j] = pvdisk_edt;
-            stub_puts("[IP54] Appended pvdiskedtinit at io_init[");
+            stub_puts("[PVPROM] Appended pvdiskedtinit at io_init[");
             stub_puthex(j);
             stub_puts("] = ");
             stub_puthex(pvdisk_edt);
@@ -2611,7 +2611,7 @@ do_jump:
             /* Append if_pvnetedtinit */
             if (pvnet_edt) {
               io[j] = pvnet_edt;
-              stub_puts("[IP54] Appended if_pvnetedtinit at io_init[");
+              stub_puts("[PVPROM] Appended if_pvnetedtinit at io_init[");
               stub_puthex(j);
               stub_puts("] = ");
               stub_puthex(pvnet_edt);
@@ -2621,7 +2621,7 @@ do_jump:
             /* Append pvfbedtinit */
             if (pvfb_edt) {
               io[j] = pvfb_edt;
-              stub_puts("[IP54] Appended pvfbedtinit at io_init[");
+              stub_puts("[PVPROM] Appended pvfbedtinit at io_init[");
               stub_puthex(j);
               stub_puts("] = ");
               stub_puthex(pvfb_edt);
@@ -2631,7 +2631,7 @@ do_jump:
             /* Append pvaudioedtinit */
             if (pvaudio_edt) {
               io[j] = pvaudio_edt;
-              stub_puts("[IP54] Appended pvaudioedtinit at io_init[");
+              stub_puts("[PVPROM] Appended pvaudioedtinit at io_init[");
               stub_puthex(j);
               stub_puts("] = ");
               stub_puthex(pvaudio_edt);
@@ -2644,13 +2644,13 @@ do_jump:
           }
         }
         if (j >= 30) {
-          stub_puts("[IP54] WARN: io_init[] full\n");
+          stub_puts("[PVPROM] WARN: io_init[] full\n");
         }
       } else {
-        if (!io_init_addr) stub_puts("[IP54] WARN: io_init symbol not found\n");
-        if (!pvdisk_edt) stub_puts("[IP54] WARN: pvdiskedtinit not found by scan\n");
+        if (!io_init_addr) stub_puts("[PVPROM] WARN: io_init symbol not found\n");
+        if (!pvdisk_edt) stub_puts("[PVPROM] WARN: pvdiskedtinit not found by scan\n");
       }
-      if (!pvnet_edt) stub_puts("[IP54] WARN: if_pvnetedtinit not found\n");
+      if (!pvnet_edt) stub_puts("[PVPROM] WARN: if_pvnetedtinit not found\n");
     }
 
     /*
@@ -2663,7 +2663,7 @@ do_jump:
      * Patch 8: Stub rtodc() — return constant time.
      *
      * rtodc() (VA 0x8800b474) reads the Dallas DS1286 RTC via _clock_func.
-     * On IP54 there is no real RTC, so _clock_func reads garbage MMIO,
+     * On the paravirtual machine there is no real RTC, so _clock_func reads garbage MMIO,
      * producing invalid BCD values.  The month loop overflows month_days[]
      * causing a Data Bus Error.
      *
@@ -2679,7 +2679,7 @@ do_jump:
         p[0] = 0x3c024000U;             /* lui v0, 0x4000 */
         p[1] = 0x03e00008U;             /* jr  ra         */
         p[2] = 0x00000000U;             /* nop            */
-        stub_puts("[IP54] Stubbed rtodc -> 0x40000000 (Jan 2004)\n");
+        stub_puts("[PVPROM] Stubbed rtodc -> 0x40000000 (Jan 2004)\n");
       }
     }
 
@@ -2730,7 +2730,7 @@ do_jump:
         p[6] = 0x03E00008U;             /* jr   $ra                    */
         p[7] = 0x00001025U;             /* or   $v0,$zero,$zero (=0)   */
         p[8] = 0x00000000U;             /* nop (unused)               */
-        stub_puts("[IP54] Patched ovbcopy: sign-extend + low-addr guard\n");
+        stub_puts("[PVPROM] Patched ovbcopy: sign-extend + low-addr guard\n");
       }
     }
 
@@ -2759,12 +2759,12 @@ do_jump:
         if (scan[0] == 0x240201ffU && scan[1] == 0x00021638U) {
           scan[0] = 0x3c02ff00U;  /* lui v0, 0xFF00 */
           scan[1] = 0x00000000U;  /* nop */
-          stub_puts("[IP54] Patched Context PTEBase: lui v0,0xFF00 (QEMU mtc0 fix)\n");
+          stub_puts("[PVPROM] Patched Context PTEBase: lui v0,0xFF00 (QEMU mtc0 fix)\n");
           found = 1;
         }
       }
       if (!found) {
-        stub_puts("[IP54] WARN: Context PTEBase pattern not found\n");
+        stub_puts("[PVPROM] WARN: Context PTEBase pattern not found\n");
       }
     }
 
@@ -2854,7 +2854,7 @@ do_jump:
             }
           }
         }
-        stub_puts("[IP54] Patched mtextnode_vnodeops: ");
+        stub_puts("[PVPROM] Patched mtextnode_vnodeops: ");
         stub_putdec(patched);
         stub_puts(" functions NULL-guarded\n");
       }
@@ -2869,7 +2869,7 @@ do_jump:
      *
      * reset_leds (0x8800b1b4) calls set_leds which writes to 0xBFBD9870
      * (ISA bus LED register on Indy/Indigo2).  This address doesn't exist
-     * on IP54 PV, causing a Data Bus Error.  The error triggers
+     * on the paravirtual machine, causing a Data Bus Error.  The error triggers
      * ecc_exception_recovery → ktext_recover, which tries to access
      * page tables at 0xff83fc00 before they're set up → TLB PANIC.
      *
@@ -2887,9 +2887,9 @@ do_jump:
       if (p && (*p == 0x27bdfff0U || *p == 0x27bdfff8U)) {
         p[0] = 0x03e00008U;  /* jr ra */
         p[1] = 0x00000000U;  /* nop   */
-        stub_puts("[IP54] Patched reset_leds: stubbed (no ISA LEDs)\n");
+        stub_puts("[PVPROM] Patched reset_leds: stubbed (no ISA LEDs)\n");
       } else {
-        stub_puts("[IP54] WARN: reset_leds patch mismatch: ");
+        stub_puts("[PVPROM] WARN: reset_leds patch mismatch: ");
         stub_puthex(*p);
         stub_puts("\n");
       }
@@ -2900,7 +2900,7 @@ do_jump:
       if (p && *p == 0x3c02bfbdU) {
         p[0] = 0x03e00008U;  /* jr ra */
         p[1] = 0x00000000U;  /* nop   */
-        stub_puts("[IP54] Patched set_leds: stubbed (no ISA LEDs)\n");
+        stub_puts("[PVPROM] Patched set_leds: stubbed (no ISA LEDs)\n");
       }
     }
 
@@ -2929,12 +2929,12 @@ do_jump:
         for (i = 0; i < 200 && !found; i++) {
           if (p[i] == expect_jal) {
             p[i] = 0x00000000U;  /* nop */
-            stub_puts("[IP54] Patched alloc_cpupda: skip early calloutinit_cpu\n");
+            stub_puts("[PVPROM] Patched alloc_cpupda: skip early calloutinit_cpu\n");
             found = 1;
           }
         }
         if (!found) {
-          stub_puts("[IP54] WARN: alloc_cpupda calloutinit_cpu jal not found\n");
+          stub_puts("[PVPROM] WARN: alloc_cpupda calloutinit_cpu jal not found\n");
         }
       }
     }
@@ -2943,7 +2943,7 @@ do_jump:
      * Patch 15: Stub findcpufreq_raw() — return 200000000 (200MHz).
      *
      * findcpufreq_raw (0x88011784) calls _ticksper1024inst() and
-     * _cpuclkper100ticks() which use the 8254 timer (not present on IP54).
+     * _cpuclkper100ticks() which use the 8254 timer (not present on the paravirtual machine).
      * More importantly, its caller timestamp_init triggers installation of
      * HEART counter reading code at VA 0x88003020.  That code does
      *   lui $12,0x0FF0; ld $25,0x80($12)
@@ -2960,7 +2960,7 @@ do_jump:
       unsigned int fcf_addr = kern_sym_u("findcpufreq_raw");
       volatile unsigned int *p = fcf_addr ? (volatile unsigned int *)fcf_addr : 0;
       if (!p) {
-        stub_puts("[IP54] WARN: findcpufreq_raw symbol not found\n");
+        stub_puts("[PVPROM] WARN: findcpufreq_raw symbol not found\n");
       } else {
       /* Verify first instruction looks like the function prologue */
       unsigned int first = *p;
@@ -2970,9 +2970,9 @@ do_jump:
         p[1] = 0x3442c200U;  /* ori  v0, v0, 0xC200 */
         p[2] = 0x03e00008U;  /* jr   ra */
         p[3] = 0x00000000U;  /* nop */
-        stub_puts("[IP54] Patched findcpufreq_raw: return 200MHz\n");
+        stub_puts("[PVPROM] Patched findcpufreq_raw: return 200MHz\n");
       } else {
-        stub_puts("[IP54] WARN: findcpufreq_raw prologue mismatch: ");
+        stub_puts("[PVPROM] WARN: findcpufreq_raw prologue mismatch: ");
         stub_puthex(first);
         stub_puts("\n");
       }
@@ -2983,7 +2983,7 @@ do_jump:
      * Patch 16: Guard badaddr_val against XUSEG probes.
      *
      * badaddr_val(addr, width, ptr) probes a device address.  On IP22,
-     * some probes target KSEG1 addresses (0xBFxxxxxx).  On IP54 (MIPS64),
+     * some probes target KSEG1 addresses (0xBFxxxxxx).  On the paravirtual machine (MIPS64),
      * some callers pass addresses in XUSEG (bit 63=0, requires TLB),
      * causing TLB miss panics when no TLB entry exists.
      *
@@ -3013,7 +3013,7 @@ do_jump:
       unsigned int bav_addr = kern_sym_u("badaddr_val");
       volatile unsigned int *p = bav_addr ? (volatile unsigned int *)bav_addr : 0;
       if (!p) {
-        stub_puts("[IP54] WARN: badaddr_val symbol not found\n");
+        stub_puts("[PVPROM] WARN: badaddr_val symbol not found\n");
       } else if (p[0] == 0x27bdfff0U && p[7] == 0x40806000U) {
         p[0] = 0x04810007U;  /* bgez  $a0, +7 */
         p[1] = 0x00000000U;  /* nop */
@@ -3025,9 +3025,9 @@ do_jump:
         p[7] = 0x40806000U;  /* mtc0  $zero, $12 (delay slot) */
         p[8] = 0x03e00008U;  /* jr    $ra */
         p[9] = 0x24020001U;  /* addiu $v0, $zero, 1 */
-        stub_puts("[IP54] Patched badaddr_val: XUSEG guard\n");
+        stub_puts("[PVPROM] Patched badaddr_val: XUSEG guard\n");
       } else {
-        stub_puts("[IP54] WARN: badaddr_val prologue mismatch: ");
+        stub_puts("[PVPROM] WARN: badaddr_val prologue mismatch: ");
         stub_puthex(p[0]);
         stub_puts(" ");
         stub_puthex(p[7]);
@@ -3043,7 +3043,7 @@ do_jump:
       unsigned int wba_addr = kern_sym_u("wbadaddr");
       volatile unsigned int *p = wba_addr ? (volatile unsigned int *)wba_addr : 0;
       if (!p) {
-        stub_puts("[IP54] WARN: wbadaddr symbol not found\n");
+        stub_puts("[PVPROM] WARN: wbadaddr symbol not found\n");
       } else
       if (p[0] == 0x27bdfff0U && p[7] == 0x40806000U) {
         p[0] = 0x04810007U;  /* bgez  $a0, +7 */
@@ -3056,19 +3056,19 @@ do_jump:
         p[7] = 0x40806000U;  /* mtc0  $zero, $12 (delay slot) */
         p[8] = 0x03e00008U;  /* jr    $ra */
         p[9] = 0x24020001U;  /* addiu $v0, $zero, 1 */
-        stub_puts("[IP54] Patched wbadaddr: XUSEG guard\n");
+        stub_puts("[PVPROM] Patched wbadaddr: XUSEG guard\n");
       } else {
-        stub_puts("[IP54] WARN: wbadaddr prologue mismatch: ");
+        stub_puts("[PVPROM] WARN: wbadaddr prologue mismatch: ");
         stub_puthex(p[0]);
         stub_puts("\n");
       }
     }
 
     /*
-     * Patch 17: Stub wd93_init — no WD93 SCSI controller on IP54.
+     * Patch 17: Stub wd93_init — no WD93 SCSI controller on the paravirtual machine.
      *
      * wd93_init probes WD93 registers via badaddr, then writes to
-     * hardware registers.  On IP54 these addresses are unmapped,
+     * hardware registers.  On the paravirtual machine these addresses are unmapped,
      * causing TLB miss panics.
      *
      * Two entry points:
@@ -3078,16 +3078,16 @@ do_jump:
     {
       unsigned int w93i_addr = kern_sym_u("wd93_init");
       if (!w93i_addr) {
-        stub_puts("[IP54] WARN: wd93_init symbol not found\n");
+        stub_puts("[PVPROM] WARN: wd93_init symbol not found\n");
       } else {
         volatile unsigned int *p;
         /* Stub the function at its entry point */
         p = (volatile unsigned int *)w93i_addr;
-        stub_puts("[IP54] wd93_init @"); stub_puthex(w93i_addr);
+        stub_puts("[PVPROM] wd93_init @"); stub_puthex(w93i_addr);
         stub_puts(" = "); stub_puthex(*p); stub_puts("\n");
         p[0] = 0x03e00008U;    /* jr $ra */
         p[1] = 0x00001025U;    /* move $v0, $zero */
-        stub_puts("[IP54] Patched wd93_init: stubbed\n");
+        stub_puts("[PVPROM] Patched wd93_init: stubbed\n");
       }
     }
 
@@ -3107,23 +3107,23 @@ do_jump:
       addr = kern_sym_u("wd93_earlyinit");
       if (addr) {
         p = (volatile unsigned int *)addr;
-        stub_puts("[IP54] wd93_earlyinit @"); stub_puthex(addr);
+        stub_puts("[PVPROM] wd93_earlyinit @"); stub_puthex(addr);
         stub_puts(" = "); stub_puthex(*p); stub_puts("\n");
         p[0] = 0x03e00008U;    /* jr $ra */
         p[1] = 0x00001025U;    /* move $v0, $zero */
-        stub_puts("[IP54] Patched wd93_earlyinit: stubbed\n");
-      } else stub_puts("[IP54] WARN: wd93_earlyinit not found\n");
+        stub_puts("[PVPROM] Patched wd93_earlyinit: stubbed\n");
+      } else stub_puts("[PVPROM] WARN: wd93_earlyinit not found\n");
 
       /* wd93edtinit */
       addr = kern_sym_u("wd93edtinit");
       if (addr) {
         p = (volatile unsigned int *)addr;
-        stub_puts("[IP54] wd93edtinit @"); stub_puthex(addr);
+        stub_puts("[PVPROM] wd93edtinit @"); stub_puthex(addr);
         stub_puts(" = "); stub_puthex(*p); stub_puts("\n");
         p[0] = 0x03e00008U;    /* jr $ra */
         p[1] = 0x00001025U;    /* move $v0, $zero */
-        stub_puts("[IP54] Patched wd93edtinit: stubbed\n");
-      } else stub_puts("[IP54] WARN: wd93edtinit not found\n");
+        stub_puts("[PVPROM] Patched wd93edtinit: stubbed\n");
+      } else stub_puts("[PVPROM] WARN: wd93edtinit not found\n");
 
       /* wd93alloc */
       addr = kern_sym_u("wd93alloc");
@@ -3131,8 +3131,8 @@ do_jump:
         p = (volatile unsigned int *)addr;
         p[0] = 0x03e00008U;    /* jr $ra */
         p[1] = 0x00001025U;    /* move $v0, $zero */
-        stub_puts("[IP54] Patched wd93alloc: stubbed\n");
-      } else stub_puts("[IP54] WARN: wd93alloc not found\n");
+        stub_puts("[PVPROM] Patched wd93alloc: stubbed\n");
+      } else stub_puts("[PVPROM] WARN: wd93alloc not found\n");
     }
 
     /*
@@ -3140,7 +3140,7 @@ do_jump:
      *
      * The `intr` function dispatches through c0vec_tbl[pri].isr (a static
      * array in IP30.c).  Several entries reference functions that don't
-     * exist in the IP54 kernel (counter_intr, heart_intr_err, etc.)
+     * exist in the paravirtual kernel (counter_intr, heart_intr_err, etc.)
      * and are NULL.  When any interrupt fires at those priority levels,
      * intr calls through NULL → crash at PC=0.
      *
@@ -3148,13 +3148,13 @@ do_jump:
      * We find it by scanning the .data section for entry [1] which points
      * to timein (known address), preceded by entry [0] = all zeros.
      *
-     * We use ip54_dummy_func (jr $ra at 0x88003010) as the stub.
+     * We use pv_dummy_func (jr $ra at 0x88003010) as the stub.
      */
     unsigned int c0vec_tbl_addr = 0;  /* filled by scan, used by Patch 21 */
     {
       volatile unsigned int *scan;
       int found = 0;
-      unsigned int dummy_func = kern_sym("ip54_dummy_func");
+      unsigned int dummy_func = kern_sym("pv_dummy_func");
       if (!dummy_func) dummy_func = 0x88003010U;  /* fallback */
 
       /* Scan .data section for c0vec_tbl: 16 zero bytes (entry[0]) followed
@@ -3176,13 +3176,13 @@ do_jump:
               unsigned int func10 = scan[10 * 4]; /* c0vec_tbl[10].isr */
               unsigned int va = 0x88260000U + ((unsigned int)((char*)scan - (char*)0xa8260000U));
               c0vec_tbl_addr = va;
-              stub_puts("[IP54] Found c0vec_tbl at 0x");
+              stub_puts("[PVPROM] Found c0vec_tbl at 0x");
               stub_puthex(va);
               stub_puts(" func[1]=0x");
               stub_puthex(func1);
               stub_puts("\n");
 
-              /* Patch all NULL func entries to ip54_dummy_func */
+              /* Patch all NULL func entries to pv_dummy_func */
               {
                 int e;
                 unsigned int dummy = dummy_func;
@@ -3192,7 +3192,7 @@ do_jump:
                     /* Also set msk and ipmsk to something safe */
                     if (scan[e * 4 + 1] == 0) scan[e * 4 + 1] = 0x0000e001U;
                     if (scan[e * 4 + 2] == 0) scan[e * 4 + 2] = 0x00000001U;
-                    stub_puts("[IP54] Patched c0vec_tbl[");
+                    stub_puts("[PVPROM] Patched c0vec_tbl[");
                     stub_puthex(e);
                     stub_puts("] = dummy\n");
                   }
@@ -3204,7 +3204,7 @@ do_jump:
         }
       }
       if (!found) {
-        stub_puts("[IP54] WARN: c0vec_tbl not found\n");
+        stub_puts("[PVPROM] WARN: c0vec_tbl not found\n");
       }
     }
 
@@ -3222,14 +3222,14 @@ do_jump:
         ".set pop\n\t"
         ::: "$8"
       );
-      stub_puts("[IP54] Set CP0 Compare to 0x7FFFFFFF\n");
+      stub_puts("[PVPROM] Set CP0 Compare to 0x7FFFFFFF\n");
     }
 
     /*
      * Patch 22: Stub perr_init (parity error init).
      *
      * perr_init at 0x88017048 reads a pointer from physical 0xe50 (MC/PDA)
-     * which is NULL on IP54, causing a TLBMISS at offset 0x5d0.
+     * which is NULL on the paravirtual machine, causing a TLBMISS at offset 0x5d0.
      * Parity error handling is irrelevant for an emulator.
      */
     {
@@ -3238,8 +3238,8 @@ do_jump:
         volatile unsigned int *p = (volatile unsigned int *)perr_addr;
         p[0] = 0x03e00008U;  /* jr $ra */
         p[1] = 0x00000000U;  /* nop    */
-        stub_puts("[IP54] Patched perr_init: stubbed\n");
-      } else stub_puts("[IP54] WARN: perr_init not found\n");
+        stub_puts("[PVPROM] Patched perr_init: stubbed\n");
+      } else stub_puts("[PVPROM] WARN: perr_init not found\n");
     }
 
     /*
@@ -3285,25 +3285,25 @@ do_jump:
               }
             }
             if (patched) {
-              stub_puts("[IP54] Patched intr() c0vec_tbl base -> 0x");
+              stub_puts("[PVPROM] Patched intr() c0vec_tbl base -> 0x");
               stub_puthex(c0vec_tbl_addr);
               stub_puts("\n");
             }
           }
         }
         if (!patched) {
-          stub_puts("[IP54] WARNING: intr() lui $s4 not found in scan\n");
+          stub_puts("[PVPROM] WARNING: intr() lui $s4 not found in scan\n");
         }
       } else if (!c0vec_tbl_addr) {
-        stub_puts("[IP54] WARNING: c0vec_tbl not found, cannot patch intr()\n");
+        stub_puts("[PVPROM] WARNING: c0vec_tbl not found, cannot patch intr()\n");
       } else {
-        stub_puts("[IP54] WARNING: intr symbol not found\n");
+        stub_puts("[PVPROM] WARNING: intr symbol not found\n");
       }
 
       /* Verify c0vec_tbl has correct entries */
       if (c0vec_tbl_addr) {
         volatile unsigned int *tbl = (volatile unsigned int *)(0x20000000U | c0vec_tbl_addr);
-        stub_puts("[IP54] c0vec_tbl[5] (clock) = ");
+        stub_puts("[PVPROM] c0vec_tbl[5] (clock) = ");
         stub_puthex(tbl[5 * 4]);
         stub_puts("  [8] (r4kcount) = ");
         stub_puthex(tbl[8 * 4]);
@@ -3317,8 +3317,8 @@ do_jump:
         unsigned int ioc1_addr = kern_sym_u("is_ioc1_flag");
         if (ioc1_addr) {
           *(volatile unsigned int *)ioc1_addr = 1;
-          stub_puts("[IP54] Set is_ioc1_flag = 1\n");
-        } else stub_puts("[IP54] WARN: is_ioc1_flag not found\n");
+          stub_puts("[PVPROM] Set is_ioc1_flag = 1\n");
+        } else stub_puts("[PVPROM] WARN: is_ioc1_flag not found\n");
       }
     }
 
@@ -3365,9 +3365,9 @@ do_jump:
         tramp[7] = 0x00000000U;  /* nop                            */
         fn_p[0]  = 0x0a0152eaU;  /* j 0x88054ba8 (trampoline A)    */
         fn_p[1]  = 0x00000000U;  /* nop                            */
-        stub_puts("[IP54] Patched exece(): 'E' trace at 0x88054ba8\n");
+        stub_puts("[PVPROM] Patched exece(): 'E' trace at 0x88054ba8\n");
       } else {
-        stub_puts("[IP54] WARNING: exece() mismatch, exece+00=");
+        stub_puts("[PVPROM] WARNING: exece() mismatch, exece+00=");
         stub_puthex(fn_p[0]); stub_puts(" +04="); stub_puthex(fn_p[1]); stub_puts("\n");
       }
     }
@@ -3389,9 +3389,9 @@ do_jump:
         tramp[6] = 0x00000000U;  /* nop                            */
         fn_p[0]  = 0x0a0152f2U;  /* j 0x88054bc8 (trampoline B)    */
         fn_p[1]  = 0x00000000U;  /* nop                            */
-        stub_puts("[IP54] Patched newproc(): 'N' trace at 0x88054bc8\n");
+        stub_puts("[PVPROM] Patched newproc(): 'N' trace at 0x88054bc8\n");
       } else {
-        stub_puts("[IP54] WARNING: newproc() mismatch, newproc+00=");
+        stub_puts("[PVPROM] WARNING: newproc() mismatch, newproc+00=");
         stub_puthex(fn_p[0]); stub_puts(" +04="); stub_puthex(fn_p[1]); stub_puts("\n");
       }
     }
@@ -3413,9 +3413,9 @@ do_jump:
         tramp[6] = 0x00000000U;  /* nop                            */
         fn_p[0]  = 0x0a0152f9U;  /* j 0x88054be4 (trampoline C)    */
         fn_p[1]  = 0x00000000U;  /* nop                            */
-        stub_puts("[IP54] Patched p0exit(): '0' trace at 0x88054be4\n");
+        stub_puts("[PVPROM] Patched p0exit(): '0' trace at 0x88054be4\n");
       } else {
-        stub_puts("[IP54] WARNING: p0exit() mismatch, p0exit+00=");
+        stub_puts("[PVPROM] WARNING: p0exit() mismatch, p0exit+00=");
         stub_puthex(fn_p[0]); stub_puts(" +04="); stub_puthex(fn_p[1]); stub_puts("\n");
       }
     }
@@ -3439,9 +3439,9 @@ do_jump:
         tramp[6] = 0x00000000U;  /* nop                             */
         fn_p[0]  = 0x0a015300U;  /* j 0x88054c00 (trampoline D)     */
         fn_p[1]  = 0x00000000U;  /* nop                             */
-        stub_puts("[IP54] Patched du_wput(): 'W' trace at 0x88054c00\n");
+        stub_puts("[PVPROM] Patched du_wput(): 'W' trace at 0x88054c00\n");
       } else {
-        stub_puts("[IP54] WARNING: du_wput() mismatch, +00=");
+        stub_puts("[PVPROM] WARNING: du_wput() mismatch, +00=");
         stub_puthex(fn_p[0]); stub_puts(" +04="); stub_puthex(fn_p[1]); stub_puts("\n");
       }
     }
@@ -3465,9 +3465,9 @@ do_jump:
         tramp[6] = 0x00000000U;  /* nop                             */
         fn_p[0]  = 0x0a015307U;  /* j 0x88054c1c (trampoline E)     */
         fn_p[1]  = 0x00000000U;  /* nop                             */
-        stub_puts("[IP54] Patched cnwrite(): 'C' trace at 0x88054c1c\n");
+        stub_puts("[PVPROM] Patched cnwrite(): 'C' trace at 0x88054c1c\n");
       } else {
-        stub_puts("[IP54] WARNING: cnwrite() mismatch, +00=");
+        stub_puts("[PVPROM] WARNING: cnwrite() mismatch, +00=");
         stub_puthex(fn_p[0]); stub_puts(" +04="); stub_puthex(fn_p[1]); stub_puts("\n");
       }
     }
@@ -3491,9 +3491,9 @@ do_jump:
         tramp[6] = 0x00000000U;  /* nop                            */
         fn_p[0]  = 0x0a01530eU;  /* j 0x88054c38 (trampoline F)   */
         fn_p[1]  = 0x00000000U;  /* nop                            */
-        stub_puts("[IP54] Patched cnopen(): 'O' trace at 0x88054c38\n");
+        stub_puts("[PVPROM] Patched cnopen(): 'O' trace at 0x88054c38\n");
       } else {
-        stub_puts("[IP54] WARNING: cnopen() mismatch, +00=");
+        stub_puts("[PVPROM] WARNING: cnopen() mismatch, +00=");
         stub_puthex(fn_p[0]); stub_puts(" +04="); stub_puthex(fn_p[1]); stub_puts("\n");
       }
     }
@@ -3505,9 +3505,9 @@ do_jump:
       volatile unsigned int *du_sflag = (volatile unsigned int *)0xa80657c0U;
       if (*du_sflag == 0x10e00004U) {
         *du_sflag = 0x10000004U;
-        stub_puts("[IP54] Patched du_open: sflag check removed\n");
+        stub_puts("[PVPROM] Patched du_open: sflag check removed\n");
       } else {
-        stub_puts("[IP54] WARNING: du_open sflag mismatch: ");
+        stub_puts("[PVPROM] WARNING: du_open sflag mismatch: ");
         stub_puthex(*du_sflag); stub_puts("\n");
       }
     }
@@ -3531,9 +3531,9 @@ do_jump:
         tramp[6] = 0x00000000U;  /* nop                           */
         fn_p[0]  = 0x0a015315U;  /* j 0x88054c54 (trampoline G)  */
         fn_p[1]  = 0x00000000U;  /* nop                          */
-        stub_puts("[IP54] Patched cn_write(): 'g' trace at 0x88054c54\n");
+        stub_puts("[PVPROM] Patched cn_write(): 'g' trace at 0x88054c54\n");
       } else {
-        stub_puts("[IP54] WARNING: cn_write() mismatch, +00=");
+        stub_puts("[PVPROM] WARNING: cn_write() mismatch, +00=");
         stub_puthex(fn_p[0]); stub_puts(" +04="); stub_puthex(fn_p[1]); stub_puts("\n");
       }
     }
@@ -3556,9 +3556,9 @@ do_jump:
         tramp[6] = 0x00000000U;  /* nop                           */
         fn_p[0]  = 0x0a01531cU;  /* j 0x88054c70 (trampoline H)  */
         fn_p[1]  = 0x00000000U;  /* nop                           */
-        stub_puts("[IP54] Patched strwrite(): 'S' trace at 0x88054c70\n");
+        stub_puts("[PVPROM] Patched strwrite(): 'S' trace at 0x88054c70\n");
       } else {
-        stub_puts("[IP54] WARNING: strwrite() mismatch, +00=");
+        stub_puts("[PVPROM] WARNING: strwrite() mismatch, +00=");
         stub_puthex(fn_p[0]); stub_puts(" +04="); stub_puthex(fn_p[1]); stub_puts("\n");
       }
     }
@@ -3593,9 +3593,9 @@ do_jump:
         tramp[16] = 0x00000000U;  /* nop                           */
         fn_p[0]   = 0x0a015366U;  /* j     0x88054d98 (trampoline) */
         fn_p[1]   = 0x00000000U;  /* nop                           */
-        stub_puts("[IP54] Patched psig(): 'Pxx' trace at 0x88054d98\n");
+        stub_puts("[PVPROM] Patched psig(): 'Pxx' trace at 0x88054d98\n");
       } else {
-        stub_puts("[IP54] WARNING: psig() mismatch, +00=");
+        stub_puts("[PVPROM] WARNING: psig() mismatch, +00=");
         stub_puthex(fn_p[0]); stub_puts(" +04="); stub_puthex(fn_p[1]); stub_puts("\n");
       }
     }
@@ -3618,9 +3618,9 @@ do_jump:
         tramp[6] = 0x00000000U;  /* nop                           */
         fn_p[0]  = 0x0a01532aU;  /* j 0x88054ca8 (trampoline J)  */
         fn_p[1]  = 0x00000000U;  /* nop                           */
-        stub_puts("[IP54] Patched exit(): 'X' trace at 0x88054ca8\n");
+        stub_puts("[PVPROM] Patched exit(): 'X' trace at 0x88054ca8\n");
       } else {
-        stub_puts("[IP54] WARNING: exit() mismatch, +00=");
+        stub_puts("[PVPROM] WARNING: exit() mismatch, +00=");
         stub_puthex(fn_p[0]); stub_puts(" +04="); stub_puthex(fn_p[1]); stub_puts("\n");
       }
     }
@@ -3669,22 +3669,22 @@ do_jump:
             guard[9] = 0x00000000U;  /* nop                           */
             scan[0]  = mips_j(guard_kseg0);
             scan[1]  = 0x00000000U;  /* nop                           */
-            stub_puts("[IP54] Patched xfs_da_node_lookup_int: null btree guard\n");
+            stub_puts("[PVPROM] Patched xfs_da_node_lookup_int: null btree guard\n");
             found = 1;
           }
         }
         if (!found) {
-          stub_puts("[IP54] WARNING: xfs btree crash pattern not found in scan\n");
+          stub_puts("[PVPROM] WARNING: xfs btree crash pattern not found in scan\n");
         }
       } else {
-        if (!xfs_func) stub_puts("[IP54] WARN: xfs_da_node_lookup_int not found\n");
-        if (!earlyinit) stub_puts("[IP54] WARN: wd93_earlyinit not found (xfs guard)\n");
+        if (!xfs_func) stub_puts("[PVPROM] WARN: xfs_da_node_lookup_int not found\n");
+        if (!earlyinit) stub_puts("[PVPROM] WARN: wd93_earlyinit not found (xfs guard)\n");
       }
     }
 
     /* Stub: Ng1PixelDma — the real ng1 driver's bulk-image DMA, linked
-     * into the kernel via IP54.sm "USE: ng1".  Xsgi's rex3DrawImage
-     * sends large PutImages through it; on IP54 there is no Indy GIO
+     * into the kernel via the system file's "USE: ng1".  Xsgi's rex3DrawImage
+     * sends large PutImages through it; on the paravirtual machine there is no Indy GIO
      * DMA hardware, so the transfer silently goes nowhere (granite
      * bands, missing weave/fm icons) and its descriptor bookkeeping is
      * the prime suspect for the zone_shake heap corruption.  Make it
@@ -3697,9 +3697,9 @@ do_jump:
         volatile unsigned int *p = (volatile unsigned int *)pd;
         p[0] = 0x03e00008U;  /* jr   ra            */
         p[1] = 0x24020016U;  /* li   v0, 22 (EINVAL) — delay slot */
-        stub_puts("[IP54] Patched Ng1PixelDma: return EINVAL (no DMA hw)\n");
+        stub_puts("[PVPROM] Patched Ng1PixelDma: return EINVAL (no DMA hw)\n");
       } else {
-        stub_puts("[IP54] WARN: Ng1PixelDma not found\n");
+        stub_puts("[PVPROM] WARN: Ng1PixelDma not found\n");
       }
     }
 
@@ -3737,13 +3737,13 @@ do_jump:
             guard[8] = 0x00000000U;  /* nop                        */
             scan[0]  = mips_j(guard_kseg0);
             /* scan[1] = ld a1,0(sp) — unchanged, runs as delay slot */
-            stub_puts("[IP54] Patched swtch: null nkt guard\n");
+            stub_puts("[PVPROM] Patched swtch: null nkt guard\n");
             found = 1;
           }
         }
-        if (!found) stub_puts("[IP54] WARNING: swtch crash pattern not found\n");
+        if (!found) stub_puts("[PVPROM] WARNING: swtch crash pattern not found\n");
       } else {
-        if (!swtch_addr) stub_puts("[IP54] WARN: swtch not found\n");
+        if (!swtch_addr) stub_puts("[PVPROM] WARN: swtch not found\n");
       }
     }
 
@@ -3773,13 +3773,13 @@ do_jump:
           guard[7] = 0x00000000U;  /* nop                       */
           entry[0] = mips_j(guard_kseg0);
           /* entry[1] = addiu t1,zero,1 — runs as delay slot */
-          stub_puts("[IP54] Patched resume: null kt guard\n");
+          stub_puts("[PVPROM] Patched resume: null kt guard\n");
         } else {
-          stub_puts("[IP54] WARNING: resume entry mismatch: ");
+          stub_puts("[PVPROM] WARNING: resume entry mismatch: ");
           stub_puthex(entry[0]); stub_puts("\n");
         }
       } else {
-        if (!resume_addr) stub_puts("[IP54] WARN: resume not found\n");
+        if (!resume_addr) stub_puts("[PVPROM] WARN: resume not found\n");
       }
     }
 
@@ -3821,17 +3821,17 @@ do_jump:
             guard[12] = mips_j(resume_kseg0);
             guard[13] = 0x00000000U;  /* nop                       */
             scan[0]   = mips_j(guard_kseg0);
-            stub_puts("[IP54] Patched uthread_dup: s0 guard + abort\n");
+            stub_puts("[PVPROM] Patched uthread_dup: s0 guard + abort\n");
             found = 1;
           }
         }
-        if (!found) stub_puts("[IP54] WARNING: uthread_dup crash pattern not found\n");
+        if (!found) stub_puts("[PVPROM] WARNING: uthread_dup crash pattern not found\n");
       } else {
-        if (!uthdup_addr) stub_puts("[IP54] WARN: uthread_dup not found\n");
+        if (!uthdup_addr) stub_puts("[PVPROM] WARN: uthread_dup not found\n");
       }
     }
 
-    /* Patch R (IP54 desktop crash ROOT CAUSE, 2026-06-20):
+    /* Patch R (desktop crash ROOT CAUSE, 2026-06-20):
      * pas_addmmapdevice() sets rp->r_maxfsize = len, DROPPING the file offset
      * (unlike pas_addmmap which uses off+len).  rld maps libpthread's sub-page
      * (filesz 0x1000 < 16K page) GOT data segment from /dev/zero (VCHR ->
@@ -3878,13 +3878,13 @@ do_jump:
             t[9] = 0x00000000U;            /* nop  (delay slot)                    */
             scan[0] = mips_j(tramp_kseg0); /* was beqz v1,X                        */
             scan[1] = 0x00000000U;         /* nop (was sd t0,96(s1))               */
-            stub_puts("[IP54] Patched pas_addmmapdevice: r_maxfsize=off+len (GOT zero-fill fix)\n");
+            stub_puts("[PVPROM] Patched pas_addmmapdevice: r_maxfsize=off+len (GOT zero-fill fix)\n");
             found = 1;
           }
         }
-        if (!found) stub_puts("[IP54] WARN: pas_addmmapdevice r_maxfsize pattern not found\n");
+        if (!found) stub_puts("[PVPROM] WARN: pas_addmmapdevice r_maxfsize pattern not found\n");
       } else {
-        if (!pasdev) stub_puts("[IP54] WARN: pas_addmmapdevice not found\n");
+        if (!pasdev) stub_puts("[PVPROM] WARN: pas_addmmapdevice not found\n");
       }
     }
 
@@ -3929,12 +3929,12 @@ do_jump:
             p = (volatile unsigned int *)(grk_addr + i * 4);
             if (*p == 0x40875800U) {
               *p = 0x00000000U;
-              stub_puts("[IP54] Patched get_r4k_counter: NOP'd Compare write\n");
+              stub_puts("[PVPROM] Patched get_r4k_counter: NOP'd Compare write\n");
               patched = 1;
             }
           }
-          if (!patched) stub_puts("[IP54] WARN: get_r4k_counter mtc0 not found\n");
-        } else stub_puts("[IP54] WARN: get_r4k_counter not found\n");
+          if (!patched) stub_puts("[PVPROM] WARN: get_r4k_counter mtc0 not found\n");
+        } else stub_puts("[PVPROM] WARN: get_r4k_counter not found\n");
       }
 
       /* NOP the mtc0 $zero, Compare in exception return code.
@@ -3956,11 +3956,11 @@ do_jump:
             p = (volatile unsigned int *)(eret_addr + i * 4);
             if (*p == 0x40805800U) {
               *p = 0x00000000U;
-              stub_puts("[IP54] Patched locore_eret: NOP'd Compare write\n");
+              stub_puts("[PVPROM] Patched locore_eret: NOP'd Compare write\n");
               patched = 1;
             }
           }
-          if (!patched) stub_puts("[IP54] WARN: locore eret mtc0 not found\n");
+          if (!patched) stub_puts("[PVPROM] WARN: locore eret mtc0 not found\n");
         } else {
           /* Fallback: scan exception handler area 0x88020000-0x88028000 */
           int patched = 0;
@@ -3968,11 +3968,11 @@ do_jump:
             p = (volatile unsigned int *)(0xa8020000U + i * 4);
             if (*p == 0x40805800U) {
               *p = 0x00000000U;
-              stub_puts("[IP54] Patched locore (scan): NOP'd Compare write\n");
+              stub_puts("[PVPROM] Patched locore (scan): NOP'd Compare write\n");
               patched = 1;
             }
           }
-          if (!patched) stub_puts("[IP54] WARN: locore mtc0 $zero, Compare not found\n");
+          if (!patched) stub_puts("[PVPROM] WARN: locore mtc0 $zero, Compare not found\n");
         }
       }
     }
@@ -4004,7 +4004,7 @@ do_jump:
       unsigned int wd93_u = kern_sym_u("wd93_earlyinit");
       unsigned int wd93_k = kern_sym("wd93_earlyinit");
 
-      stub_puts("[IP54] lcl2vec_tbl = ");
+      stub_puts("[PVPROM] lcl2vec_tbl = ");
       stub_puthex(lcl2vec_k);
       stub_puts("\n");
 
@@ -4021,14 +4021,14 @@ do_jump:
          * 0x10037fec, backtrace via pvfbioctl/wd93intr/icmn_err) — the local
          * interrupt handler expects the kernel's local-dispatch context, not a
          * direct call from a c0vec trampoline.  Needs deeper interrupt-context
-         * work.  See progress_notes/ip54/interrupt_wiring_progress.md. */
+         * work. */
         unsigned int lhi = (lcl2vec_k >> 16) & 0xffff;
         unsigned int llo = lcl2vec_k & 0xffff;
         unsigned int c0vec4_u = (c0vec_tbl_addr | 0x20000000U) + 4 * 16;
         volatile unsigned int *e4 = (volatile unsigned int *)c0vec4_u;
         unsigned int orig_handler = e4[0];  /* save original IP4 handler */
 
-        stub_puts("[IP54] c0vec_tbl[4] original isr=");
+        stub_puts("[PVPROM] c0vec_tbl[4] original isr=");
         stub_puthex(orig_handler);
         stub_puts("\n");
 
@@ -4081,15 +4081,15 @@ do_jump:
         /* Patch c0vec_tbl[4].isr → trampoline */
         e4[0] = tramp_k;
 
-        stub_puts("[IP54] Patched c0vec_tbl[4].isr = pckm trampoline @ ");
+        stub_puts("[PVPROM] Patched c0vec_tbl[4].isr = pckm trampoline @ ");
         stub_puthex(tramp_k);
         stub_puts(" via lcl2vec_tbl[5] / orig @ ");
         stub_puthex(orig_handler);
         stub_puts("\n");
       } else {
-        if (!c0vec_tbl_addr) stub_puts("[IP54] WARN: c0vec_tbl not found\n");
-        if (!lcl2vec_k) stub_puts("[IP54] WARN: lcl2vec_tbl not found\n");
-        if (!wd93_u) stub_puts("[IP54] WARN: wd93_earlyinit not found\n");
+        if (!c0vec_tbl_addr) stub_puts("[PVPROM] WARN: c0vec_tbl not found\n");
+        if (!lcl2vec_k) stub_puts("[PVPROM] WARN: lcl2vec_tbl not found\n");
+        if (!wd93_u) stub_puts("[PVPROM] WARN: wd93_earlyinit not found\n");
       }
 
       /* Part B: Enable HEART IMR0 bit 23 (8042 kbd/mouse) → IP3 → c0vec_tbl[4]
@@ -4106,12 +4106,12 @@ do_jump:
         *imr0 |= (1ULL << 20);
       }
 
-      /* Part C: Patch ip54_intr_init to also enable IMR0 bit 20 at runtime.
-       * Safety net: re-sets the bit when if_pvnetedtinit → ip54_intr_init.
+      /* Part C: Patch pv_intr_init to also enable IMR0 bit 20 at runtime.
+       * Safety net: re-sets the bit when if_pvnetedtinit → pv_intr_init.
        * Uses space AFTER the dispatch trampoline in wd93_earlyinit.
        */
       {
-        unsigned int ii_u = kern_sym_u("ip54_intr_init");
+        unsigned int ii_u = kern_sym_u("pv_intr_init");
 
         if (0 && ii_u && wd93_u && wd93_k) {
           /* Place IMR0 code after dispatch trampoline (offset +64 = 16 instrs) */
@@ -4132,7 +4132,7 @@ do_jump:
             ii[0] = mips_j(imr_tramp);
             ii[1] = 0x00000000U;
           }
-          stub_puts("[IP54] Patched ip54_intr_init: IMR0 bit 20 trampoline\n");
+          stub_puts("[PVPROM] Patched pv_intr_init: IMR0 bit 20 trampoline\n");
         }
       }
     }
@@ -4297,7 +4297,7 @@ do_jump:
           vtbl[12] = mapg_k;
           vtbl[25] = mapg_k;  /* reuse gf_MapGfx stub (returns 0) */
 
-          stub_puts("[IP54] pvfb vtable at ");
+          stub_puts("[PVPROM] pvfb vtable at ");
           stub_puthex(vtbl_u);
           stub_puts(": gf_Attach=");
           stub_puthex(att_k);
@@ -4305,10 +4305,10 @@ do_jump:
           stub_puthex(mapg_k);
           stub_puts("\n");
         } else {
-          stub_puts("[IP54] WARN: pvfb_gfx_fncs vtable not found\n");
+          stub_puts("[PVPROM] WARN: pvfb_gfx_fncs vtable not found\n");
         }
       } else {
-        stub_puts("[IP54] WARN: pvfb gfx patch skipped (missing symbols)\n");
+        stub_puts("[PVPROM] WARN: pvfb gfx patch skipped (missing symbols)\n");
       }
     }
 
@@ -4320,7 +4320,7 @@ do_jump:
   }
 
   /* Should not return */
-  stub_puts("[IP54] Program returned from Execute\n");
+  stub_puts("[PVPROM] Program returned from Execute\n");
   return 0;
 }
 
@@ -4490,7 +4490,7 @@ void _save_exceptions(void) {}
 void _restore_exceptions(void) {}
 
 void panic(char *fmt, ...) {
-  stub_puts("[IP54 PANIC] ");
+  stub_puts("[PVPROM PANIC] ");
   if (fmt)
     stub_puts(fmt);
   stub_puts("\n");
@@ -4505,18 +4505,18 @@ void panic(char *fmt, ...) {
 void init_spb(void);
 
 void _init_saio(void) {
-  debug_puts("[IP54] _init_saio\n");
+  debug_puts("[PVPROM] _init_saio\n");
   init_spb();
   init_fd_table();
   init_component_tree();
   init_memory_descriptors();
 }
 
-void initConsole(void) { debug_puts("[IP54] initConsole\n"); }
+void initConsole(void) { debug_puts("[PVPROM] initConsole\n"); }
 
 void initGraphics(int functionCode) {
   (void)functionCode;
-  debug_puts("[IP54] initGraphics\n");
+  debug_puts("[PVPROM] initGraphics\n");
 }
 
 void init_consenv(char *console) { (void)console; }
@@ -4525,14 +4525,14 @@ void _init_bootenv(void) {}
 int post2(int functionCode, int resetCount) {
   (void)functionCode;
   (void)resetCount;
-  debug_puts("[IP54] post2\n");
+  debug_puts("[PVPROM] post2\n");
   return 0;
 }
 
 int post3(int functionCode, int resetCount) {
   (void)functionCode;
   (void)resetCount;
-  debug_puts("[IP54] post3\n");
+  debug_puts("[PVPROM] post3\n");
   return 0;
 }
 
@@ -4653,28 +4653,28 @@ char *kl_inv_find(void) { return (char *)0; }
  * FIRMWARE CALLBACKS & SPB
  * ================================================================ */
 
-char *getversion(void) { return "IP54 PROM v0.2 (QEMU SGI O2)"; }
+char *getversion(void) { return "paravirtual PROM v0.2 (QEMU SGI O2)"; }
 
 void FWCB_EnterInteractiveMode(void) {
-  debug_puts("[IP54] FWCB_EnterInteractiveMode\n");
+  debug_puts("[PVPROM] FWCB_EnterInteractiveMode\n");
 }
 
 void FWCB_Halt(void) {
-  debug_puts("[IP54] FWCB_Halt\n");
+  debug_puts("[PVPROM] FWCB_Halt\n");
   while (1)
     ;
 }
 
 void FWCB_PowerDown(void) {
-  debug_puts("[IP54] FWCB_PowerDown\n");
+  debug_puts("[PVPROM] FWCB_PowerDown\n");
   while (1)
     ;
 }
 
-void FWCB_Restart(void) { debug_puts("[IP54] FWCB_Restart\n"); }
+void FWCB_Restart(void) { debug_puts("[PVPROM] FWCB_Restart\n"); }
 
 void FWCB_Reboot(void) {
-    debug_puts("[IP54] FWCB_Reboot\n");
+    debug_puts("[PVPROM] FWCB_Reboot\n");
 
     /* Dump CP0 registers for TLB/exception diagnostics.
      * With -mabi=32, we must extract 64-bit CP0 values as two 32-bit
@@ -4699,7 +4699,7 @@ void FWCB_Reboot(void) {
         unsigned int val32;
 
         __asm__ volatile("mfc0 %0, $12" : "=r"(val32)); /* Status */
-        debug_puts("[IP54] CP0 Status=");
+        debug_puts("[PVPROM] CP0 Status=");
         stub_puthex(val32);
 
         __asm__ volatile("mfc0 %0, $13" : "=r"(val32)); /* Cause */
@@ -4707,20 +4707,20 @@ void FWCB_Reboot(void) {
         stub_puthex(val32);
         debug_puts("\n");
 
-        debug_puts("[IP54] ");
+        debug_puts("[PVPROM] ");
         DUMP_CP0_64("EPC", 14);
         debug_puts(" ");
         DUMP_CP0_64("BadVAddr", 8);
         debug_puts("\n");
 
-        debug_puts("[IP54] ");
+        debug_puts("[PVPROM] ");
         DUMP_CP0_64("Context", 4);
         debug_puts(" ");
         DUMP_CP0_64("EntryHi", 10);
         debug_puts("\n");
 
         __asm__ volatile("mfc0 %0, $6" : "=r"(val32)); /* Wired */
-        debug_puts("[IP54] CP0 Wired=");
+        debug_puts("[PVPROM] CP0 Wired=");
         stub_puthex(val32);
         debug_puts("\n");
     }
@@ -4739,7 +4739,7 @@ void FWCB_Reboot(void) {
     {
       volatile unsigned int *ep = (volatile unsigned int *)0xa829c340U;
       int i;
-      debug_puts("[IP54] EP frame @0x8829c340 (first 80 words):\n");
+      debug_puts("[PVPROM] EP frame @0x8829c340 (first 80 words):\n");
       for (i = 0; i < 80; i += 4) {
         debug_puts("  +"); stub_puthex(i*4); debug_puts(": ");
         stub_puthex(ep[i]); debug_puts(" ");
@@ -4752,7 +4752,7 @@ void FWCB_Reboot(void) {
     /* Dump code at VA 0x88003020 (via KSEG1) to see what's installed */
     {
         volatile unsigned int *p = (volatile unsigned int *)0xa8003020U;
-        debug_puts("[IP54] Code@0x88003020: ");
+        debug_puts("[PVPROM] Code@0x88003020: ");
         stub_puthex(p[0]); debug_puts(" ");
         stub_puthex(p[1]); debug_puts(" ");
         stub_puthex(p[2]); debug_puts(" ");
@@ -4788,7 +4788,7 @@ void FWCB_Reboot(void) {
              * For non-wired (8-63): only show if Lo0 or Lo1 has V bit (bit 1). */
             if (i >= 8 && !(lo0_v & 2) && !(lo1_v & 2))
                 continue;
-            debug_puts("[IP54] TLB[");
+            debug_puts("[PVPROM] TLB[");
             if (i >= 10) stub_putchar_polled('0' + i / 10);
             stub_putchar_polled('0' + i % 10);
             debug_puts("] Hi=");
@@ -4832,19 +4832,19 @@ void FWCB_Reboot(void) {
                 unsigned int phys = pfn << 12;
                 volatile unsigned int *mem = (volatile unsigned int *)(0x80000000U | phys);
                 int j;
-                debug_puts("[IP54] icode page: TLB[");
+                debug_puts("[PVPROM] icode page: TLB[");
                 stub_putchar_polled('0' + i / 10);
                 stub_putchar_polled('0' + i % 10);
                 debug_puts("] PFN=");
                 stub_puthex(pfn);
                 debug_puts(" PA=");
                 stub_puthex(phys);
-                debug_puts("\n[IP54] icode[0..15]: ");
+                debug_puts("\n[PVPROM] icode[0..15]: ");
                 for (j = 0; j < 16; j++) {
                     stub_puthex(mem[j]);
                     stub_putchar_polled(' ');
                 }
-                debug_puts("\n[IP54] icode[16..23]: ");
+                debug_puts("\n[PVPROM] icode[16..23]: ");
                 for (j = 16; j < 24; j++) {
                     stub_puthex(mem[j]);
                     stub_putchar_polled(' ');
@@ -4854,7 +4854,7 @@ void FWCB_Reboot(void) {
             }
         }
         if (i == 64) {
-            debug_puts("[IP54] icode page: no TLB entry for VA 0x10000000\n");
+            debug_puts("[PVPROM] icode page: no TLB entry for VA 0x10000000\n");
         }
     }
 }
@@ -4864,7 +4864,7 @@ static FirmwareVector _fw_vector;
 
 void init_spb(void) {
   spb_t *spb = SPB;
-  debug_puts("[IP54] init_spb\n");
+  debug_puts("[PVPROM] init_spb\n");
 
   spb->Signature = 0x53435241; /* "ARCS" */
   spb->Length = sizeof(spb_t);
@@ -5006,7 +5006,7 @@ void IP32_cpu_install(void *root) { (void)root; }
 int jumper_off(void) { return 0; }
 void showException(unsigned long sr, unsigned long cause,
                    unsigned long badvaddr, unsigned long epc) {
-  stub_puts("[IP54] Exception: SR=");
+  stub_puts("[PVPROM] Exception: SR=");
   stub_puthex(sr);
   stub_puts(" Cause=");
   stub_puthex(cause);
@@ -5107,11 +5107,11 @@ void mace_n16c550_install(void *top) { (void)top; }
 void initMaceSerial(void) {}
 
 /* --- From secondary_boot.s --- */
-/* secondary_boot is only called for SMP secondary CPUs; not needed for IP54 */
+/* secondary_boot is only called for SMP secondary CPUs; not needed here */
 
 /* --- __assert from IP32k.c --- */
 void __assert(const char *ex, const char *file, int line) {
-  stub_puts("[IP54] ASSERT FAILED: ");
+  stub_puts("[PVPROM] ASSERT FAILED: ");
   if (ex) stub_puts(ex);
   stub_puts(" at ");
   if (file) stub_puts(file);
@@ -5198,7 +5198,7 @@ LONG SetEnvironmentVariable(CHAR *name, CHAR *value)
 /*
  * cpufreq -- return CPU frequency in MHz for a given config Key.
  * hinv_cmd.c formats "MIPS R10000 Processor ... <N> MHZ".
- * The IP54 CPU is R10000 @ 200MHz (matches qemu cpuclk=200000000).
+ * The paravirtual machine's CPU is R10000 @ 200MHz (matches qemu cpuclk=200000000).
  */
 int cpufreq(int key)
 {
@@ -5207,7 +5207,7 @@ int cpufreq(int key)
 }
 
 /*
- * kl_hinv -- SGI Origin/Octane NUMA hw inventory; not applicable to IP54.
+ * kl_hinv -- SGI Origin/Octane NUMA hw inventory; not applicable to the paravirtual machine.
  */
 int kl_hinv(int flags, char **argv)
 {
@@ -5224,7 +5224,7 @@ int _get_numcpus(void)
 }
 
 /*
- * businfo -- print IP32/GIO bus info; no physical bus on IP54.
+ * businfo -- print IP32/GIO bus info; no physical bus on the paravirtual machine.
  */
 void businfo(int verbose)
 {
@@ -5237,7 +5237,7 @@ void businfo(int verbose)
 
 /*
  * GUI stubs for the graphics-based boot menu path (mrboot).
- * On IP54 there is no GFX boot GUI; these are no-ops / return 0.
+ * On the paravirtual machine there is no GFX boot GUI; these are no-ops / return 0.
  */
 void cleanGfxGui(void) {}
 void changeProgressBox(void *prog, int percent, int tenth)
@@ -5276,7 +5276,7 @@ int fprintf(void *stream, const char *fmt, ...)
 
 /*
  * init_rb / save_rb / restore_rb -- manage the ARCS restart block used
- * to re-run the last boot command.  IP54 doesn't need persistent restart
+ * to re-run the last boot command.  The paravirtual machine doesn't need persistent restart
  * support; provide minimal stubs so rb_cmd compiles and links.
  */
 void init_rb(void) {}
@@ -5300,12 +5300,12 @@ int restore_rb(int *argc, char ***argv, char ***envp)
 /*
  * load_abs -- load a file at its linked address (the "-a" boot path).
  * Called by boot_cmd.c when the -a flag is used.
- * For IP54 we delegate to Execute() which parses the path and loads the file.
+ * Here we delegate to Execute() which parses the path and loads the file.
  */
 LONG load_abs(CHAR *path, ULONG *execaddr)
 {
     (void)execaddr;
-    /* Cannot just load without executing on IP54 — delegate fully */
+    /* Cannot just load without executing on the paravirtual machine — delegate fully */
     return Execute(path, 0, (CHAR **)0, (CHAR **)0);
 }
 
@@ -5321,7 +5321,7 @@ LONG exec_abs(CHAR *path, LONG argc, CHAR *argv[], CHAR *envp[])
 /*
  * rbclrbs -- clear a bit in the restart block boot-status word.
  * Called by boot_cmd.c to mark that a boot was initiated.
- * IP54 has no real restart block; this is a no-op.
+ * The paravirtual machine has no real restart block; this is a no-op.
  */
 void rbclrbs(int flag)
 {
@@ -5390,7 +5390,7 @@ void prcuroff(ULONG fd)
 }
 
 /*
- * sn0_getcpuid -- Origin/Octane CPU ID; always 0 on IP54.
+ * sn0_getcpuid -- Origin/Octane CPU ID; always 0 on the paravirtual machine.
  */
 int sn0_getcpuid(void)
 {
@@ -5408,28 +5408,28 @@ int sn0_getcpuid(void)
 int dump(int argc, char **argv, char **argp, struct cmd_table *ct)
 {
     (void)argc; (void)argv; (void)argp; (void)ct;
-    printf("[IP54] dump not implemented\n");
+    printf("[PVPROM] dump not implemented\n");
     return 0;
 }
 
 int fill(int argc, char **argv, char **argp, struct cmd_table *ct)
 {
     (void)argc; (void)argv; (void)argp; (void)ct;
-    printf("[IP54] fill not implemented\n");
+    printf("[PVPROM] fill not implemented\n");
     return 0;
 }
 
 int get(int argc, char **argv, char **argp, struct cmd_table *ct)
 {
     (void)argc; (void)argv; (void)argp; (void)ct;
-    printf("[IP54] get not implemented\n");
+    printf("[PVPROM] get not implemented\n");
     return 0;
 }
 
 int put(int argc, char **argv, char **argp, struct cmd_table *ct)
 {
     (void)argc; (void)argv; (void)argp; (void)ct;
-    printf("[IP54] put not implemented\n");
+    printf("[PVPROM] put not implemented\n");
     return 0;
 }
 
@@ -5439,7 +5439,7 @@ int put(int argc, char **argv, char **argp, struct cmd_table *ct)
 int passwd_cmd(int argc, char **argv, char **argp, struct cmd_table *ct)
 {
     (void)argc; (void)argv; (void)argp; (void)ct;
-    printf("[IP54] passwd not implemented\n");
+    printf("[PVPROM] passwd not implemented\n");
     return 0;
 }
 
@@ -5452,7 +5452,7 @@ int play_cmd(int argc, char **argv, char **argp, struct cmd_table *ct)
 int poweroff_cmd(int argc, char **argv, char **argp, struct cmd_table *ct)
 {
     (void)argc; (void)argv; (void)argp; (void)ct;
-    printf("[IP54] Powering off...\n");
+    printf("[PVPROM] Powering off...\n");
     while (1); /* halt */
     return 0;
 }
@@ -5460,7 +5460,7 @@ int poweroff_cmd(int argc, char **argv, char **argp, struct cmd_table *ct)
 int reboot_cmd(int argc, char **argv, char **argp, struct cmd_table *ct)
 {
     (void)argc; (void)argv; (void)argp; (void)ct;
-    printf("[IP54] Rebooting...\n");
+    printf("[PVPROM] Rebooting...\n");
     /* Jump to reset vector */
     ((void (*)(void))0xBFC00000)();
     return 0;
@@ -5469,6 +5469,6 @@ int reboot_cmd(int argc, char **argv, char **argp, struct cmd_table *ct)
 int resetpw_cmd(int argc, char **argv, char **argp, struct cmd_table *ct)
 {
     (void)argc; (void)argv; (void)argp; (void)ct;
-    printf("[IP54] resetpw not implemented\n");
+    printf("[PVPROM] resetpw not implemented\n");
     return 0;
 }

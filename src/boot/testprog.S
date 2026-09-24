@@ -1,5 +1,5 @@
 /*
- * testprog.S - Minimal MIPS test program for the IP54 PROM boot chain.
+ * testprog.S - Minimal MIPS test program for the paravirtual PROM boot chain.
  *
  * This program writes a banner message to the MACE serial port (16550 UART)
  * at physical 0x1F390000, proving that the PROM can load and execute an ELF32

@@ -1,6 +1,6 @@
 /*
  * debugcard.h -- Stub for standalone PROM build
- * The debug card is not present in our IP54 build.
+ * The debug card is not present in this build.
  */
 #ifndef __DEBUGCARD_H__
 #define __DEBUGCARD_H__

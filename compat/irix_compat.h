@@ -8,8 +8,8 @@
  *
  * Include this via -include irix_compat.h in CFLAGS so it's always available.
  */
-#ifndef __IP54_IRIX_COMPAT_H__
-#define __IP54_IRIX_COMPAT_H__
+#ifndef __PVPROM_IRIX_COMPAT_H__
+#define __PVPROM_IRIX_COMPAT_H__
 
 /*
  * SGI type definitions (__int32_t, __uint64_t, __psunsigned_t, etc.)
@@ -76,7 +76,7 @@
 #endif
 
 /*
- * IP54 QEMU target: IP32 (O2) has RAM at physical 0x00000000.
+ * Paravirtual QEMU target: IP32 (O2) has RAM at physical 0x00000000.
  * PHYS_RAMBASE is defined in IP32.h as 0x00000000.
  */
 
@@ -284,9 +284,9 @@ typedef unsigned int  k_fltset_t;
 
 /*
  * Function exclusion guards: disable IRIX implementations that depend on
- * hardware we don't have (e.g., flash ROM). Stubs in ip54_stubs.c provide
+ * hardware we don't have (e.g., flash ROM). Stubs in pv_stubs.c provide
  * replacements.
  */
-#define IP54_STUB_GETVERSION  /* getversion: use stub instead of flash-reading version */
+#define PVPROM_STUB_GETVERSION  /* getversion: use stub instead of flash-reading version */
 
-#endif /* __IP54_IRIX_COMPAT_H__ */
+#endif /* __PVPROM_IRIX_COMPAT_H__ */

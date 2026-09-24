@@ -1,5 +1,5 @@
 #
-# Makefile -- IP54 PROM build (cross-compiled SGI PROM for QEMU)
+# Makefile -- paravirtual PROM build (cross-compiled SGI PROM for QEMU)
 #
 # Usage:
 #   make toolchain    # Build the MIPS cross-compiler
@@ -15,13 +15,13 @@
 include toolchain.mk
 
 BUILD_DIR := build
-PROM_BIN  := $(BUILD_DIR)/ip54.bin
-PROM_ELF  := $(BUILD_DIR)/ip54.elf
+PROM_BIN  := $(BUILD_DIR)/prom.bin
+PROM_ELF  := $(BUILD_DIR)/prom.elf
 
 # ── Source file lists ────────────────────────────────────────────────
 
 # Assembly sources
-# NOTE: secondary_boot.s removed — SMP secondary CPU boot, not needed for IP54
+# NOTE: secondary_boot.s removed — SMP secondary CPU boot, not needed here
 # NOTE: IP32asm.s removed — CRIME/MACE hardware access, replaced by stubs
 # NOTE: mte_asm.s removed — duplicates us_delay (usecdelay.s), write_reg64 (IP32asm.s)
 # NOTE: dwdiv.s, lldivrem.s, llcvt.s removed — FPU-dependent, incompatible with -msoft-float
@@ -67,7 +67,7 @@ TIER1_SRCS := \
 
 # C sources - Tier 2: platform library
 # NOTE: All TIER2 files removed — CRIME/MACE/MTE/tile/ds2502/UART hardware
-# interactions replaced by stubs in ip54_stubs.c
+# interactions replaced by stubs in pv_stubs.c
 TIER2_SRCS :=
 
 # C sources - Tier 3: libsk
@@ -145,7 +145,7 @@ POST_C_SRCS := \
 
 # Stub file (grows as we discover missing symbols)
 STUB_SRCS := \
-    src/fw/ip54_stubs.c
+    src/fw/pv_stubs.c
 
 # All C sources
 C_SRCS := $(TIER1_SRCS) $(FS_SRCS) $(CMD_SRCS) $(ML_SRCS) $(TIER2_SRCS) $(TIER3_SRCS) $(TIER4_SRCS) $(STUB_SRCS)
@@ -164,7 +164,7 @@ ALL_OBJS := $(ASM_OBJS) $(C_OBJS)
 
 all: check-toolchain $(PROM_BIN)
 	@echo ""
-	@echo "=== IP54 PROM build complete ==="
+	@echo "=== paravirtual PROM build complete ==="
 	@$(SIZE) $(PROM_ELF)
 	@ls -la $(PROM_BIN)
 
@@ -245,12 +245,12 @@ $(PROM_BIN): $(PROM_ELF)
 # ── Utilities ───────────────────────────────────────────────────────
 
 disasm: $(PROM_ELF)
-	$(OBJDUMP) -d $< > $(BUILD_DIR)/ip54.dis
-	@echo "Disassembly: $(BUILD_DIR)/ip54.dis"
+	$(OBJDUMP) -d $< > $(BUILD_DIR)/prom.dis
+	@echo "Disassembly: $(BUILD_DIR)/prom.dis"
 
 symbols: $(PROM_ELF)
-	$(NM) -n $< > $(BUILD_DIR)/ip54.sym
-	@echo "Symbol table: $(BUILD_DIR)/ip54.sym"
+	$(NM) -n $< > $(BUILD_DIR)/prom.sym
+	@echo "Symbol table: $(BUILD_DIR)/prom.sym"
 
 # ── Cleaning ────────────────────────────────────────────────────────
 

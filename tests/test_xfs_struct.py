@@ -34,10 +34,11 @@ import pytest
 PROM_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CROSS_GCC = "/opt/cross/mips-elf/bin/mips-elf-gcc"
 CROSS_OBJDUMP = "/opt/cross/mips-elf/bin/mips-elf-objdump"
-IP54_DISK = "/workspace/vm_instances/ip54-test/disk.qcow2"
+# An XFS disk to check the superblock of; set PVPROM_TEST_DISK to enable.
+TEST_DISK = os.environ.get("PVPROM_TEST_DISK", "")
 
 have_toolchain = os.path.isfile(CROSS_GCC)
-have_disk = os.path.isfile(IP54_DISK)
+have_disk = bool(TEST_DISK) and os.path.isfile(TEST_DISK)
 
 # ---------------------------------------------------------------------------
 # Compiler flags (match toolchain.mk exactly)
@@ -375,13 +376,13 @@ class TestXfsSbLayout:
 # DISK SUPERBLOCK TESTS
 # ===========================================================================
 
-@pytest.mark.skipif(not have_disk, reason="ip54-test disk not available")
+@pytest.mark.skipif(not have_disk, reason="PVPROM_TEST_DISK not set or missing")
 class TestDiskXfsSuperblock:
-    """Verify the XFS superblock on the ip54-test disk is valid."""
+    """Verify the XFS superblock on the test disk is valid."""
 
     @pytest.fixture(scope="class")
     def superblock(self):
-        sb_data, lbn, part_num = _read_xfs_superblock(IP54_DISK)
+        sb_data, lbn, part_num = _read_xfs_superblock(TEST_DISK)
         return sb_data, lbn, part_num
 
     def test_xfs_partition_found(self, superblock):

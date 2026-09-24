@@ -14,7 +14,7 @@ binutils-*/
 gcc-*/
 
 # Large test logs (regeneratable from a QEMU boot)
-ip54_test1.log
+prom_test1.log
 *.log
 qemu*.log
 

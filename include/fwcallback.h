@@ -1,7 +1,7 @@
 /*
  * fwcallback.h -- Firmware callback declarations
  *
- * For IP54 single-stage PROM, these are implemented in ip54_stubs.c.
+ * For the single-stage paravirtual PROM, these are implemented in pv_stubs.c.
  */
 #ifndef __FWCALLBACK_H__
 #define __FWCALLBACK_H__

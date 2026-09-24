@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# build-all.sh -- Complete IP54 PROM build pipeline
+# build-all.sh -- Complete paravirtual PROM build pipeline
 #
 # This script runs all phases in order:
 #   1. Build cross-compiler (if not present)

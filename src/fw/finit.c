@@ -1,5 +1,5 @@
 /*
- * finit.c -- IP54 firmware initialization (minimal, ARCS-only)
+ * finit.c -- Paravirtual firmware initialization (minimal, ARCS-only)
  *
  * Stripped of all CRIME/MACE/DS17287/MTE/tile/graphics hardware interactions.
  * Keeps: firmware entry, ARCS init, SPB setup, fw_dispatcher, halt/restart/reboot.

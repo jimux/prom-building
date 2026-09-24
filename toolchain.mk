@@ -1,5 +1,5 @@
 #
-# toolchain.mk -- Cross-compiler paths and flags for IP54 PROM build
+# toolchain.mk -- Cross-compiler paths and flags for paravirtual PROM build
 #
 
 # Cross-compiler prefix
